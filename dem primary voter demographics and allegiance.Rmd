@@ -1,0 +1,410 @@
+---
+title: "Section3_Lab1_LewisM_RivaS_OparaS"
+author: "Stanley"
+date: "October 19, 2016"
+output: pdf_document
+---
+
+#Variables
+#variable: description
+#ftsanders: Rating of Bernie Sanders from 0-100
+#fthrc: Rating of Hillary Clinton from 0-100
+#ideo5: Respondent's evaluation of their own ideology, 5 points scale (1 = Very liberal, 5 = Very  #conservative, 6 = Not sure).
+#pid3:  Respondent's party affiliation (1 = Democrat, 2= Republican, 3 = Independent, 4 = Other, 5 =Not sure)
+#race_white: Indicator variable taking the value of 1 if respondent is white, 0 otherwise.
+#gender: Indicator variable taking the value of 1 if respondent is male, 2 if respondent is female.
+#birthyr: Birthyear of the respondent.
+
+## Question 1 Variable Inspection
+```{r}
+data = read.csv("/Users/nav749/Downloads/w271_2016Fall_Lab1_2_2/us_public_opinion.csv")
+str(data)
+summary(data)
+```
+number of observations = 1200 
+number of variables = 7
+##Descriptive Statisics
+(i)ftsanders: Metric variable with 8 erroneous values(998).Majority of the values fell within the 2 extremes; i.e many voters gave sanders a low rating as well as a high rating
+(ii)fthrc: Metric variable with 1 erroneous value(998).From the statistics we can oberve an overwhelming number of voters gave Hillary a very poor rating.
+(iii)ideo5: Ordinal variable. We observed that the mean of this variable is 3. Which suggests that on the average  voters had a neutral mindset(neither liberal or conservative)
+(iv)pid3: Ordinal variable. From the summary statistics, the surveyed voters comprised mainly of democrats, then independents and republicans
+(v)race_white: Binary variable. Most of the surveyed voters are whites. white : non-white ratio was toughly 3: 1
+(vi)gender: Binary variable.Roughly, there were an equal number of men and women.
+(vii)birthyr: Metric Variable. Most of the voters surveyed were born between 1950 and 2000, fewer voters were born before 1950.
+
+## Question 2
+```{r}
+###Filtering errornous values in fthrc and ftsanders, filtering voters with "Not Sure ideology"
+data.filter = data[data$fthrc<101,]
+data.filter = data.filter[data.filter$ftsanders<101,]
+data.filter = data.filter[data.filter$ideo5 != 6,]
+
+##PLoting histogram of fthrc and ftsanders variables
+hist(data.filter$fthrc,breaks=100)
+hist(data.filter$ftsanders,breaks = 100)
+
+##Relationship Between fthrc and ftsanders variables
+library(ggplot2)
+graph = ggplot(data.filter,aes(fthrc,ftsanders))
+graph + geom_point(shape =2) + geom_smooth()
+
+#Creating Diff variable
+data.filter$diff = data.filter$ftsanders - data.filter$fthrc
+
+#Distribution of Diff variable
+hist(data.filter$diff,breaks=100)
+```
+
+##Question 3
+```{r}
+hist(data.filter$ideo5,breaks=50)
+```
+(a)Distribution and transformation of ideo5
+
+The distribution of the ideology ordinal variable looks like a normally distributed discrete variable.
+Given that this is an ordinal variable, we would need to transform this variable into (n-1) dummy variables with the leftover category as the base category
+
+(b) Describe Ideology distribution of voters
+
+From the distribution we can observe that the average american voter has a neutral mindset(he is neither conservative or liberal)
+
+
+## Question 4
+```{r}
+#Creating age variable
+data.filter$age=2016 - data.filter$birthyr
+
+#Recoding Gender variable
+data.filter$gender =ifelse(data.filter$gender == 2, 1,0)
+
+#Distribution and Comment on Age and Gender
+hist(data.filter$gender,breaks=50)
+hist(data.filter$age,breaks=50)
+
+##Recoding age variable
+data.filter$ageyoung<-ifelse(data.filter$age>30, 0, 1)
+
+#Computing mean of age
+mean(data.filter$age)
+
+#Proportion of respondents that are white
+race_white_table = table(data.filter$race_white)
+num_white=race_white_table[names(race_white_table)==1]
+num_white
+
+#Proportion of respondents that are female
+gender_table = table(data.filter$gender)
+num_female=gender_table[names(gender_table)==1]
+num_female
+```
+
+Age Distribution : We observed that there are few respondents above the age of 80. The distribution also looks bimodal
+
+Gender Distribution: There are slightly more females than males in the data
+
+Comment: We can bin age into categories given taht the distribution of the age variable is not normal
+
+## Question 5
+```{r}
+#Relationship Between Ideological And Diff variable
+library(dplyr)
+data.filter.liberal = data.filter %>% filter(ideo5 ==1 | ideo5==2 )
+sum.liberal.diff.ratings =sum(data.filter.liberal$diff)
+average.liberal.diff.ratings = sum.liberal.diff.ratings/length(data.filter.liberal$ideo5)
+average.liberal.diff.ratings
+```
+(a)
+The average diff rating by a liberal voter shows that  liberal voters favour sanders more than clinton
+
+(b)
+```{r}
+library(car)
+scatterplot.matrix(~diff + ideo5 + pid3 + race_white + gender + age, data=data.filter)
+```
+###Relationship between Diff and Ideology
+Very liberal voters have a higher appoval rating for sanders over clinton relative to liberal voters
+Very conservative voters also have a higher appoval rating for sanders over clinton relative to conservative voters
+
+
+###Relationship between Diff and Party Affliation
+From the graphs we observe that republicans had a higher approval rating for sanders over clinton 
+compared to democrats. The other party affliation had the highest approval rating for sanders over clinton 
+followed by independents then republicans then democrats
+
+###Relationship between Diff and Race_white
+White voters had a higher approval rating for sanders over clinton compared to non-white voters
+
+###Relationship between Diff and Gender
+The approval rating for each candidate over the other was relatively the same for men and women.
+
+###Relationship between Diff and Age
+The relationship between age and diff is non linear. Based on this relationship,
+we would be binning the age variable
+
+###Comment
+We do not have perfect collinearity amongst any of the independent variables but the more variables we add the greater the standard errors we get.
+
+
+
+##Question 6
+
+###(a). Influence of EDA
+The relationships we observed during the EDA guided our decisions in transforming some of the variables as well as in buiding the parsimonous model.
+
+###(b) Build parsimonious model and comment
+
+```{r}
+##Adding ideology variable
+model_ideo = lm(diff ~ ideo5, data = data.filter)
+summary(model_ideo)
+```
+In the first model, we wanted to start off with just ideology as the independent variable.  The ideology coefficient is 0.32 (not practicially significant), but isn't statistically significant either at a p-value of 0.720 with an alpha of 0.05.
+
+```{r}
+###Adding Ideology (Continuous) and Age variables
+model_ideo_age = lm(diff ~ ideo5 + ageyoung, data = data.filter)
+summary(model_ideo_age)
+AIC(model_ideo, model_ideo_age)
+```
+In the second model, we added the dummy age variable (1 is 30 years of age and less).  The age dummy variable appears to be statistically significant at an alpha of 0.05 and a p-value of 9.6e-05.  The interpretation of the statistically significant age variable suggests that voters that are 30 years old and younger prefer Sanders by 10.588 more than Clinton, all else being equal. Ideology is still statisically insignificant.
+
+Additionally, when doing the AIC test between the previous model and the second model, you can see that the second model is better with a lower value.
+
+```{r}
+###Ideology (Continuous), Age and Race Model
+model_ideo_age_race = lm(diff ~ ideo5 + ageyoung + race_white, data = data.filter)
+summary(model_ideo_age_race)
+AIC(model_ideo_age, model_ideo_age_race)
+```
+In the third model, we added the dummy race variable.  The age dummy variable and race variable appear to be statistically significant at an alpha of 0.05 and a p-value of 2.4e-06 and 2e-16 respectively as well as practically significant.  The interpretation of these two variables is that again age variable suggests that voters that are 30 years old and younger prefer Sanders by 12.435 points more than Clinton, all else being equal.  And white voters prefer Sanders over Clinton by 20.448 points all else being equal. Ideology is still statisically insignificant.
+
+The AIC test, again, suggests this is a better model than the previous.
+
+```{r}
+###Add Ideology (Continuous), Age, Race and Gender variables
+model_ideo_age_race_gend = lm(diff ~ ideo5 + ageyoung + race_white + gender, data = data.filter)
+summary(model_ideo_age_race_gend)
+AIC(model_ideo_age_race, model_ideo_age_race_gend)
+```
+Adding gender doesn't make the  model as shown by the AIC value(it didnt reduce), which is in line with the EDA analysis.
+
+###Comment
+The inclusion of additional variables improved our model. The direction of age and race_white are inline with our EDA analysis
+and they were statistically significant. The coefficient of Ideo5 was not inline with our EDA analysis but the coefficient was not significant
+
+###(c). Do liberal voters have a higher level of support for Sanders over Clinton? 
+With these models, we cannot state that liberal voters prefer Sanders over Clinton due to the statistical insignificance of the model.  Therefore, we cannot answer the question of whether liberal voters prefer Sanders or not. To enable us answer this question we would need to get more data , or possibly recode the model.
+
+###D. Practical Significance
+Relative to race and gender, the coefficeint of Ideology is not practically significant.Under ceteris paribus conditions, For every unit increase in the level of 
+conservatism, we got a 0.2%(ratings were measured on a scale between 0 - 100) increase in favoribility rating of sanders over clinton
+
+###F, G and . Regression diagnostics
+```{r}
+plot(model_ideo_age_race,1)
+plot(model_ideo_age_race,2)
+plot(model_ideo_age_race,3)
+plot(model_ideo_age_race,4)
+library(lmtest)
+bptest(model_ideo_age_race)
+```
+
+When viewing the diagnostic plots, it appeared that all of the CLM assumptions that we are able to diagnose were met but the homoshedasticity assumption.  When using the Breusch-Pagan test to test homoskedesticity, it confirmed our observation from the plots. 
+
+###H
+A violation of homoskedasticty implies that the standard errors for our coefficients are wrong.
+
+#Question 7
+
+##A. Build parsimonious model and comment
+
+###Ideology (Categorical) Model
+```{r}
+#Recoding Ideology categorical variable Into 5 Dummy variables
+data.filter$v_lib=ifelse(data.filter$ideo5==1, 1, 0)
+data.filter$lib=ifelse(data.filter$ideo5==2, 1, 0)
+data.filter$neut=ifelse(data.filter$ideo5==3, 1, 0)
+data.filter$cons=ifelse(data.filter$ideo5==4, 1, 0)
+data.filter$v_cons=ifelse(data.filter$ideo5==5, 1, 0)
+
+model_ideo2 = lm(diff ~ lib + neut + cons +v_cons, data = data.filter)
+summary(model_ideo2)
+```
+Starting off with just ideology as the independent categorical variable.  The ideology coefficients are not practicially or statisitically significant with an alpha of 0.05.
+
+###Ideology (Categorical) and Age Model
+```{r}
+#Using very Liberal as the base variable
+model_ideo_age2 = lm(diff ~ lib + neut + cons +v_cons + ageyoung, data = data.filter)
+summary(model_ideo_age2)
+AIC(model_ideo2, model_ideo_age2)
+```
+Again, in the second model, we wanted to add in the dummy age variable (1 is 30 years of age and less).  The age dummy variable appears to be statistically significant at an alpha of 0.05 and a p-value of 6.3e-05.  The interpretation of the statistically significant age variable suggests that voters that are 30 years old and younger prefer Sanders by 10.889 more than Clinton, all else being equal. Ideology is still statisically insignificant.
+
+Additionally, when doing the AIC test between the previous model and the second model, you can see that the second model is better with a lower value.
+
+###Ideology (Categorical), Age and Race Model
+```{r}
+#3
+model_ideo_age_race2 = lm(diff ~ lib + neut + cons +v_cons + ageyoung + race_white, data = data.filter)
+summary(model_ideo_age_race2)
+AIC(model_ideo_age2, model_ideo_age_race2)
+```
+Again, in the third model, we added the dummy race variable.  The age dummy variable and race variable appear to be statistically significant at an alpha of 0.05 and a p-value of 1.4e-06 and 2e-16 respectively as well as practically significant.  The interpretation of these two variables is that again age variable suggests that voters that are 30 years old and younger prefer Sanders by 12.761 points more than Clinton, all else being equal.  And white voters prefer Sanders over Clinton by 20.451 points all else being equal. Ideology is still statisically insignificant.
+
+The AIC test, again, suggests this is a better model than the previous.
+
+###Ideology (Categorical), Age, Race and Gender Model
+```{r}
+#4
+model_ideo_age_race_gend2 = lm(diff ~ lib + neut + cons +v_cons + ageyoung + race_white + gender, data = data.filter)
+summary(model_ideo_age_race_gend2)
+AIC(model_ideo_age_race2, model_ideo_age_race_gend2)
+```
+Again, when adding gender, this doesn't make the 4th model better than the previous 3rd model, as expected based on the EDA.
+
+##C. Do liberal voters have a higher level of support for Sanders over Clinton? 
+With these models and the previous continous ideology categorical models, we cannot state that liberal voters prefer Sanders over Clinton due to the statistical insignificance of the model.  Therefore, we cannot answer the question of whether liberal voters prefer Sanders or not. 
+
+##D. Practical Significance
+The liberal and very conservative coefficients were somewhat practically significant. Under ceteris paribus conditions,
+relative to very liberal voters, the liberal and very conservative votes had  5.6% and  3.36% more favorability rating of clinton over sanders.
+
+##F, G and H. Regression diagnostics
+```{r}
+plot(model_ideo_age_race2,1)
+plot(model_ideo_age_race2,2)
+plot(model_ideo_age_race2,3)
+plot(model_ideo_age_race2,4)
+
+bptest(model_ideo_age_race2)
+```
+
+When viewing the diagnostic plots, it appeared that all of the CLM assumptions that we are able to diagnose were met but the homoshedasticity assumption.  When using the Breusch-Pagan test to test homoskedesticity, it confirmed our observation from the plots. 
+
+###Comparison of 2 Models
+```{r}
+AIC(model_ideo_age_race2)
+AIC(model_ideo_age_race)
+```
+
+Given that neither model had statistically significant results for the ideological variable, we computed an AIC for both models
+and the model with ideology as a continuous variable had a lower value. Based on that, the first model is more appropriate but the second model is easier to interpret. It is easier to interpret the dummy variables recoded from the ordinal variable
+
+#Question 8
+
+(a) Due to the ease of interpretation we choose the second model(ideology as a categorical variable)
+
+(b). The CLM assumtion for constant variance for the error term was violated. We also suspect that exogeneity is violated
+because certain factors such as economic status was not included in the model but is related to ideology.
+
+(c) Use robust standard error functions to compute the standard errors, add more variables to the model.
+(d) Using heteroskedastic robust tests
+(e) Eliminating ommitted variable bias
+(f) Additional data will inflate standard errors and it will not make our model homoskedastic
+(g) Based on our model we would target young voters as well as white voters for donations. We would need more data in order
+formulate a strategy that approaches voters based on thier ideology. 
+
+
+#Part 2 *******************************************************************
+
+###Question 1 
+
+We violated the 4th CLM assumptions which is the Zero Condition Mean/Exogeneity. By omiting party variable
+which by conventional wisdom is correlated with the ideological variable and the the dependency variable, our
+model is endogenous(ideology variable is correlated with the error term).
+
+###Question 2
+We were not able to ascertain if our independent variable(ideo5) was endogenous from the residual analysis.
+We can only test for homoskedasticity and normality of our error terms from our residual analysis.
+
+###Question 3
+
+```{r}
+#Filtering out parties 'other' and 'not sure' as these variable do not help answer the question and are minute
+data.filter=data.filter[data.filter$pid3!=4,]
+data.filter = data.filter[data.filter$pid3!=5,]
+
+#Create a new variable 'party' as a spectrum aligned in the same direction as ideology, 
+#ranging from 1=dem, 2= neutral, 3=rep.
+data.filter$party=ifelse(data.filter$pid3==1,1, ifelse(data.filter$pid3==3, 2, ifelse(data.filter$pid3==2, 3, 0)))
+hist(data.filter$party)
+
+plot(data.filter$ideo5, data.filter$party)
+model_ideo_party=lm(data.filter$party ~ data.filter$ideo5)
+abline(model_ideo_party)
+summary(model_ideo_party)
+```
+
+Regression as well as plot show a very strong correlation between ideo and party.
+
+We should be concerned about multi-collinearity while adding the party variable to our model. Although its not perfect collinearity, our SE will be inflated.
+
+###Question 4
+```{r}
+####Recoding party variable into 3  Dummy variables
+data.filter$democrat<-ifelse(data.filter$pid3==1, 1, 0)
+data.filter$independent<-ifelse(data.filter$pid3==2, 1, 0)
+data.filter$republican<-ifelse(data.filter$pid3==3, 1, 0)
+
+###Building model with democrat as base category for party and very_libral as base category for ideology 
+model_final_party1a<-lm(data.filter$diff ~ data.filter$ageyoung + data.filter$race_white  + 
+                         data.filter$independent + data.filter$republican +
+                         data.filter$lib + data.filter$neut + 
+                         data.filter$cons + data.filter$v_cons)
+summary(model_final_party1a)
+```
+
+###Question 5
+Adding the party variable improved our model significantly. Most of the coefficents were both statistically and practically
+significant. From the model, we can gather that voters with a different ideology other than very liberal, will vote in the range between 5.986 - 13.333 points in favour of clinton over sanders relative to the very libral voters.
+
+
+###Question 6 and 7
+
+We would achieve this by creating interaction variables between the party IV and the ideology IV
+```{r}
+#Refactoring ideo5 into 3 categorical groups,  lib = lib+very_lib, cons = cons+very_cons and neutral
+data.filter$ideo_3_dims <-      ifelse(data.filter$ideo5==1 | data.filter$ideo5==2, 1, 
+                                ifelse(data.filter$ideo5==4 | data.filter$ideo5==5, 3, 2))
+
+##Manually creating an interaction between each group of ideo and party 
+data.filter$dem_lib<-ifelse(data.filter$ideo_3_dims==1 & data.filter$party==1, 1, 0)
+data.filter$dem_cons<-ifelse(data.filter$ideo_3_dims==3 & data.filter$party==1, 1, 0)
+data.filter$dem_neut<-ifelse(data.filter$ideo_3_dims==2 & data.filter$party==1, 1, 0)
+data.filter$rep_lib<-ifelse(data.filter$ideo_3_dims==1 & data.filter$party==3, 1, 0)
+data.filter$rep_cons<-ifelse(data.filter$ideo_3_dims==3 & data.filter$party==3, 1, 0)
+data.filter$rep_neut<-ifelse(data.filter$ideo_3_dims==2 & data.filter$party==3, 1, 0)
+data.filter$indp_lib<-ifelse(data.filter$ideo_3_dims==1 & data.filter$party==2, 1, 0)
+data.filter$indp_cons<-ifelse(data.filter$ideo_3_dims==3 & data.filter$party==2, 1, 0)
+data.filter$indp_neut<-ifelse(data.filter$ideo_3_dims==2 & data.filter$party==2, 1, 0)
+
+##Using democratic liberal as base category
+model_final_party2a<-lm(data.filter$diff ~ data.filter$ageyoung + data.filter$race_white +
+                         data.filter$dem_cons + data.filter$dem_neut + 
+                         data.filter$rep_lib + data.filter$rep_cons + data.filter$rep_neut + 
+                         data.filter$indp_lib + data.filter$indp_cons + data.filter$indp_neut)
+
+summary(model_final_party2a)
+```
+
+From the summary statistics of the model we can observe that all the interactions between party and ideology are both 
+statistically and practically significant. These results make us reject the null hypothesis, there is no interaction between 
+the ideological variable and the party variable
+
+###Question 8
+From the summary statistics, taking into account a respondents' party affliation is necessary in order to answer 
+our research question.From the analysis if we control for age and race; Relative to democratic liberals, republican conservatives,republican neutrals and all independent groups favour sanders over clinton.
+
+```{r}
+####Removing control variables from model to obtain the impact of Democratic liberals(coefficient of intercept)
+model_final_party2b<-lm(data.filter$diff ~
+                         data.filter$dem_cons + data.filter$dem_neut + 
+                         data.filter$rep_lib + data.filter$rep_cons + data.filter$rep_neut + 
+                         data.filter$indp_lib + data.filter$indp_cons + data.filter$indp_neut)
+summary(model_final_party2b)
+```
+From the result we can gather than democratic liberals have positive impression of sanders over clinton(coefficient of intercept)
+
+###Final Comment
+We should target  democratic liberals, republican conservatives,republican neutrals and all independent groups for contributions to the sanders campaign.

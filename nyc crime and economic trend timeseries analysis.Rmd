@@ -1,0 +1,836 @@
+---
+title: "Section3_Lab03_RivaS_OparaS_LewisM_vanHemmenS"
+author: "Mary Lewis, Svetlana Riva, Stanley Opara, Shruti van Hemmen"
+date: "December 8, 2016"
+output: html_document
+---
+# NYC Felony Multi Variate Time Series Analysis with the Dow Jones Industrial Average
+
+## Part 1 - Data Description, Question and Data Load
+
+We are using the NYC Crime Data Set for our analysis with the Dow Jones Industrial Average monthly data going back to 2007.
+
+## The main question we want to answer is: 
+
+**Is crime of material nature in NYC more correlated with a global economic factor - in this case the Dow Jones Industrial Average - than crime of non material nature and can the economic indicator DJIA be used to forecast the crimes?**
+
+The NYC Felony dataset can be found here https://data.cityofnewyork.us/login after registration. The dataset was taken from the NYC Open Data project and contains felony crime data as far back as 1903, and for all consecutive years starting in 1968 to present - end of 2015. The data is updated quarterly and contains information on 7 felony type crimes in NYC:
+
+1) Burglary
+2) Assault
+3) Larceny
+4) Larceny - auto
+5) Murder
+6) Rape
+7) Robbery
+
+Attribute Information:
+
+1. Identifier: Unique identifier for each complaint
+2. Day of Week: day of week on which the incident occurred
+3. Occurrence Month: month in which the incident occurred
+4. Occurrence Day: day of month in which the incident occurred
+5. Occurrence Year: year in which the incident occurred
+6. Occurrence Hour: time when the incident occurred; based on 24 hour clock
+7. Offense: type of offense; currently aligned with the FBIs seven major felonies.
+
+The DJIA data set is pulled from https://fred.stlouisfed.org/series/DJIA/downloaddata.  Since the DJIA data is monthly, in order to do accurate comparisons, we aggregated the NYC Felony data monthly and joined the two datasets together.  Additioanlly, since the DJIA data only goes back to 2007, we excluded NYC Felony data prior to 2007. The final data set we used is "NYPD_Felonies_DJIA.csv"" file provided.
+
+
+
+We chose to focus our attention on 4 crimes out of the 7 and defined crime into two categories:
+
+Material - Robbery and Larceny
+Non-Material - Murder and Assault
+
+We excluded rape because the laws on what constitutes a rape have changed quite a bit over the years.  Since we focused on two types of crime on the non-material side, we decided to focus on two types of crime on the material side and chose auto larceny and robbery.
+
+```{r}
+#loading the libraries
+library(astsa)
+library(sandwich)
+library(data.table)
+library(tseries)
+library(vars)
+library(readxl)
+library(forecast)
+library(tsDyn)
+
+#loading the data set (NOTE: change the directory to where the NYPD_Felonies_DJIA.csv is located)
+
+data <- read_excel("C:\\Users\\sriva\\Documents\\Berkeley\\Time Series and Applied Regression\\Data\\NYPD_Felonies_DJIA.xlsx", 
+                  col_types = c("date", "numeric", "numeric", 
+                                "numeric", "numeric", "numeric",
+                                "numeric", "numeric", "numeric"))
+
+# Changing to data table
+data <- data.table(data)
+
+# Formatting the date variable
+data[, date := as.Date(as.POSIXct(date,format='%m/%d/%Y'))]
+
+```
+108 observations confirm that we have 9 years of data (i.e. 108 months divided by 12 months per year = 9 years)
+9 variables confirm that the data set includes the date (first of the month), 7 types of crime and DJIA value
+
+##Part 2 - EDA
+
+##EDA I - Exploring basic data attributes
+
+The mean monthly count of the 4 types of crime are:
+
+Robbery: 1619
+Auto Larceny: 3504
+Assault: 1543
+Murder: 35.21
+
+Auto larceny is the highest frequency crime in NYC on average out of the 4 types of crime considered. The DJIA monthly average across the 9 years is 13,140
+
+No NAs observed in the dataset.  All 972 data points (108 observations * 9 variables) are non NA.
+```{r}
+# Examining the dataset
+str(data)
+head(data)
+min(data$date)
+max(data$date)
+summary(data)
+table(is.na(data))
+```
+
+##EDA II - Slicing the data into 4 crime types and DJIA and exploring these separately
+
+###Robbery
+-Robbery has a fairly normal distribution 
+-174,881 robberies occurred in NYC between 2007 and 2015
+
+###Auto Larceny
+-Auto Larceny  looks right skewed
+-86,152 auto larcenies have occurred in NYC between 2007 and 2015
+
+###Assault
+-Assault is also a bit right skewed.  
+-166,591 assaults have occurred in NYC between 2007 and 2015
+
+###Murder
+-Murder looks right skewed  
+-3,803 murders have occurred in NYC between 2007 and 2015
+
+###DJIA
+-DJIA doesn't have a specific distribution
+
+```{r}
+robbery = data$robbery
+auto_larceny = data$auto_larceny
+assault = data$assault
+murder = data$murder
+DJIA = data$DJIA
+
+par(mfrow=c(3,2))
+hist(robbery, main="Histogram of Robbery In NYC",xlab="Monthly Robbery count")
+hist(auto_larceny, main="Histogram of Auto Larceny In NYC",xlab="Monthly Auto Larceny count")
+hist(assault, main="Histogram of Assault In NYC",xlab="Monthly Assault count")
+hist(murder, main="Histogram of Murder In NYC",xlab="Monthly Murder count")
+hist(DJIA, main="Histogram of DJIA",xlab="Monthly DJIA")
+
+
+summary(robbery)
+quantile(robbery)
+sum(robbery)
+
+summary(auto_larceny)
+quantile(auto_larceny)
+sum(auto_larceny)
+
+summary(assault)
+quantile(assault)
+sum(assault)
+
+summary(murder)
+quantile(murder)
+sum(murder)
+
+summary(DJIA)
+quantile(DJIA)
+```
+
+##EDA III - Converting to TS
+
+Since we are going to be creating a model to forecast DJIA based on crime frequency, we want to test our models by leaving out 2015 and using 8 years to train our model and the last year (2015) to check accuracy.
+```{r}
+robbery.ts = ts(robbery,start=c(2007,1), end=c(2014,12), freq = 12)   ##Leaving out 2015 for forecasting
+auto_larceny.ts = ts(auto_larceny,start=c(2007,1), end=c(2014,12), freq = 12)   ##Leaving out 2015 for forecasting
+assault.ts = ts(assault,start=c(2007,1), end=c(2014,12), freq = 12)   ##Leaving out 2015 for forecasting
+murder.ts = ts(murder,start=c(2007,1), end=c(2014,12), freq = 12)   ##Leaving out 2015 for forecasting
+DJIA.ts = ts(DJIA,start=c(2007,1), end=c(2014,12), freq = 12)   ##Leaving out 2015 for forecasting
+```
+
+###Robbery
+1. Looks to have a steady downward trend until 2009 where it becomes somewhat steady
+2. Appears to have a bit of seasonality according to the decaying sinusoidal ACF
+3. The ACF tails of gradually with a sinusoidal trend and the PACF cuts off sharply at Lag 1 which makes us think the differenced series could be modelled with AR(1)
+4. Even though the adf tests suggest mean stationarity, the trend is most likely not stationary according to the plots since the variance covariance are probably not stationary
+
+```{r}
+par(mfrow=c(2,2))
+plot(robbery.ts,main="Monthly TS of Robbery In NYC", ylab = "Count of Robberies")
+hist(robbery.ts, breaks = 30, main = "Histogram - Robbery")
+acf(robbery.ts,main="ACF of Monthly TS of Robbery In NYC",lag.max = 50)
+pacf(robbery.ts,main="PACF of Monthly TS of Robbery In NYC",lag.max = 50)
+#Decompose
+plot(decompose(robbery.ts, type = c("additive", "multiplicative")))
+#Testing for unit roots
+adf.test(robbery.ts) #p-value = 0.01 can reject the null, therefore, may be stationary
+```
+
+###Auto Larceny
+1. Looks to have a steady downward trend until 2013 where it becomes steady
+2. Appears to have a bit of seasonality according to the decaying sinusoidal ACF
+3. The ACF tails of gradually with an up and down trend and the PACF cuts off sharply at Lag 1 below the CI which makes us think the differenced series could be modelled with AR(1)
+4. Even though the adf tests suggest mean stationarity, the trend is most likely not stationary according to the plots since the variance covariance are probably not stationary
+
+```{r}
+par(mfrow=c(2,2))
+plot(auto_larceny.ts,main="Monthly TS of Auto Larceny In NYC", ylab = "Count of Auto Larcenies")
+hist(auto_larceny.ts, breaks = 30, main = "Histogram - Auto Larceny")
+acf(auto_larceny.ts,main="ACF of Monthly TS of Auto Larceny In NYC",lag.max = 50)
+pacf(auto_larceny.ts,main="PACF of Monthly TS of Auto Larceny In NYC",lag.max = 50)
+#Decompose
+plot(decompose(auto_larceny.ts, type = c("additive", "multiplicative")))
+#Testing for unit roots
+adf.test(auto_larceny.ts) #p-value = 0.01 can reject the null, therefore, may be stationary
+```
+
+###Assault
+1. Looks to have a steady upward trend starting at 2010 and a bit steady prior to 2010
+2. Definitely appears to have seasonality based on the time serieas plot and the decaying sinusoidal ACF
+3. The ACF tails of gradually with a sinusoidal trend and the PACF cuts off sharply at Lag 1 which makes us think the differenced series could be modelled with AR(1)
+4. Even though the adf tests suggest mean stationarity, the trend is most likely not stationary according to the plots since the variance covariance are probably not stationary
+```{r}
+par(mfrow=c(2,2))
+plot(assault.ts,main="Monthly TS of Assault In NYC", ylab = "Count of Assault")
+hist(assault.ts, breaks = 30, main = "Histogram - Assault")
+acf(assault.ts,main="ACF of Monthly TS of Assault In NYC",lag.max = 50)
+pacf(assault.ts,main="PACF of Monthly TS of Assault In NYC",lag.max = 50)
+#Decompose
+plot(decompose(assault.ts, type = c("additive", "multiplicative")))
+#Testing for unit roots
+adf.test(assault.ts) #p-value = 0.01 can reject the null, therefore, may be stationary
+```
+
+###Murder
+1. The time series plot shows a spike at July 2010 as expected
+2. It has a few ups and down prior to 2011 but it is steadily trending downwards after 2011
+3. It is hard to detect seasonality looking at the time series plot, but the decaying sinusoidal ACF suggests seasonality
+4. 3. The ACF tails of gradually with a sinusoidal trend and the PACF cuts off sharply at Lag 1 which makes us think the differenced series could be modelled with AR(1)
+5. Even though the adf tests suggest mean stationarity, the trend is most likely not stationary according to the plots.
+
+```{r}
+par(mfrow=c(2,2))
+plot(murder.ts,main="Monthly TS of Murder In NYC", ylab = "Count of Murders")
+hist(murder.ts, breaks = 30, main = "Histogram - Murder")
+acf(murder.ts,main="ACF of Monthly TS of Murder In NYC",lag.max = 50)
+pacf(murder.ts,main="PACF of Monthly TS of Murder In NYC",lag.max = 50)
+#Decompose
+plot(decompose(murder.ts, type = c("additive", "multiplicative")))
+#Testing for unit roots
+adf.test(murder.ts) #p-value = 0.01226 can reject the null, therefore, may be stationary
+```
+
+###DJIA
+1. The series appears to follow a random walk with drift pattern
+2. Downward trend until about 2009, then a persistent upward trend
+3. Based on the ACF and PACF, AR(1) model seems like a good fit
+4. The adf tests suggest that it is not stationary
+```{r}
+par(mfrow=c(2,2))
+plot(DJIA.ts,main="Monthly TS of DJIA", ylab = "DJIA")
+hist(DJIA.ts, breaks = 30, main = "Histogram - DJIA")
+acf(DJIA.ts,main="ACF of Monthly TS of DJIA",lag.max = 50)
+pacf(DJIA.ts,main="PACF of Monthly TS of DJIA",lag.max = 50)
+#Decompose
+plot(decompose(DJIA.ts, type = c("additive", "multiplicative")))
+#Testing for unit roots
+adf.test(DJIA.ts) #p-value = 0.4926 cannot reject the null, therefore may not be stationary
+```
+
+##EDA IV - Testing Stationarity
+
+###All Crimes and DJIA - similar results were found across the 5 time series data sets
+1. As seen earlier, the Augmented Dickey Fuller test (adf) suggests mean stationarity, but does not mean the series is fully stationary.
+2. After performing an arma(1,0) model and doing an Ljung Box test, the residuals show no autocorrelation
+3. The residuals of crimes and DJIA AR(1) models are stationary as the below arma analysis and residual plots show for each crime
+```{r}
+# ARMA(1,0) model
+robbery.fit <- arma(robbery.ts, order = c(1,0))
+auto_larceny.fit <- arma(auto_larceny.ts, order = c(1,0))
+assault.fit <- arma(assault.ts, order = c(1,0))
+murder.fit <- arma(murder.ts, order = c(1,0))
+DJIA.fit <- arma(DJIA.ts, order = c(1,0))
+
+Box.test(robbery.fit$resid, type="Ljung-Box")
+Box.test(auto_larceny.fit$resid, type="Ljung-Box")
+Box.test(assault.fit$resid, type="Ljung-Box")
+Box.test(murder.fit$resid, type="Ljung-Box")
+Box.test(DJIA.fit$resid, type="Ljung-Box")
+
+summary(robbery.fit$resid)
+summary(auto_larceny.fit$resid)
+summary(assault.fit$resid)
+summary(murder.fit$resid)
+summary(DJIA.fit$resid)
+# Mean is close to 0
+
+# Plotting the residuals
+par(mfrow=c(2,2))
+  plot(robbery.fit$resid, col="blue", main="TS - Robbery AR(1) Residuals")
+  hist(robbery.fit$resid, breaks = 30, col="gray", main="Hist - Robbery AR(1) Residuals")
+  acf(robbery.fit$resid[-1] , main="ACF: Robbery AR(1) Residual Series")
+  pacf(robbery.fit$resid[-1], main="PACF: Robbery AR(1) Residual Series")
+  
+  plot(auto_larceny.fit$resid, col="blue", main="TS - Auto Larceny AR(1) Residuals")
+  hist(auto_larceny.fit$resid, breaks = 30, col="gray", main="Hist - Auto Larceny AR(1) Residuals")
+  acf(auto_larceny.fit$resid[-1] , main="ACF: Auto Larceny AR(1) Residual Series")
+  pacf(auto_larceny.fit$resid[-1], main="PACF: Auto Larceny AR(1) Residual Series")
+  
+  plot(assault.fit$resid, col="blue", main="TS - Assault AR(1) Residuals")
+  hist(assault.fit$resid, breaks = 30, col="gray", main="Hist - Assault AR(1) Residuals")
+  acf(assault.fit$resid[-1] , main="ACF: Assault AR(1) Residual Series")
+  pacf(assault.fit$resid[-1], main="PACF: Assault AR(1) Residual Series")
+  
+  plot(murder.fit$resid, col="blue", main="TS - Murder AR(1) Residuals")
+  hist(murder.fit$resid, breaks = 30, col="gray", main="Hist - Murder AR(1) Residuals")
+  acf(murder.fit$resid[-1] , main="ACF: Murder AR(1) Residual Series")
+  pacf(murder.fit$resid[-1], main="PACF: Murder AR(1) Residual Series")
+  
+  plot(DJIA.fit$resid, col="blue", main="TS - DJIA AR(1) Residuals")
+  hist(DJIA.fit$resid, breaks = 30, col="gray", main="Hist - DJIA AR(1) Residuals")
+  acf(DJIA.fit$resid[-1] , main="ACF: DJIA AR(1) Residual Series")
+  pacf(DJIA.fit$resid[-1], main="PACF: DJIA AR(1) Residual Series")
+```
+
+##EDA V - Making the Time Series Stationary for VAR Model
+
+All crime time series appear to be stationary in the first difference via the adf test. DJIA has a bit of a higher p-value, therefore we looked at the mean and it didn't look to be stationary.  We decided to take the difference of the DJIA log and this made the time series stationary.
+
+Taking the first trend difference and testing for stationarity.  All appear to be stationary in the first difference according to the adf.
+```{r}
+robbery.first <- diff(robbery.ts)
+auto_larceny.first <- diff(auto_larceny.ts)
+assault.first <- diff(assault.ts)
+murder.first <- diff(murder.ts)
+DJIA.first <- diff(DJIA.ts)
+
+adf.test(murder.first)
+adf.test(auto_larceny.first)
+adf.test(assault.first)
+adf.test(murder.first)
+adf.test(DJIA.first)
+```
+
+Taking the first seasonal difference and testing for stationarity. Once seasonality is removed, the adf test tells us that that time series are not stationary in the first seasonal difference.
+
+```{r}
+robbery.firsts <- diff(robbery.ts, lag = 12)
+auto_larceny.firsts <- diff(auto_larceny.ts, lag = 12)
+assault.firsts <- diff(assault.ts, lag = 12)
+murder.firsts <- diff(murder.ts, lag = 12)
+DJIA.firsts <- diff(DJIA.ts, lag = 12)
+
+adf.test(murder.firsts)
+adf.test(auto_larceny.firsts)
+adf.test(assault.firsts)
+adf.test(murder.firsts)
+adf.test(DJIA.firsts)
+```
+
+Looking further at DJIA, it appears that the mean is not close to 0 even though adf test says that we cannot reject the null that it is not stationary.
+
+```{r}
+mean(DJIA.first)
+```
+
+Plotting the first trend differences to futher conclude that first difference time series are stationary.
+
+```{r}
+par(mfrow=c(2,2))
+  plot(robbery.first, col="blue", main="TS - Robbery Diff")
+  hist(robbery.first, breaks = 30, col="gray", main="Hist - Robbery Diff")
+  acf(robbery.first, main="ACF: Robbery Diff Series")
+  pacf(robbery.first, main="PACF: Robbery Diff Series")
+  
+  plot(auto_larceny.first, col="blue", main="TS - Auto Larceny Diff")
+  hist(auto_larceny.first, breaks = 30, col="gray", main="Hist - Auto Larceny Diff")
+  acf(auto_larceny.first, main="ACF: Auto Larceny Diff Series")
+  pacf(auto_larceny.first, main="PACF: Auto Larceny Diff Series")
+  
+  plot(assault.first, col="blue", main="TS - Assault Diff")
+  hist(assault.first, breaks = 30, col="gray", main="Hist - Assault Diff")
+  acf(assault.first, main="ACF: Assault Diff Series")
+  pacf(assault.first, main="PACF: Assault Diff Series")
+  
+  plot(murder.first, col="blue", main="TS - Murder Diff")
+  hist(murder.first, breaks = 30, col="gray", main="Hist - Murder Diff")
+  acf(murder.first, main="ACF: Murder Diff Series")
+  pacf(murder.first, main="PACF: Murder Diff Series")
+  
+  plot(DJIA.first, col="blue", main="TS - DJIA Diff")
+  hist(DJIA.first, breaks = 30, col="gray", main="Hist - DJIA Diff")
+  acf(DJIA.first, main="ACF: DJIA Diff Series")
+  pacf(DJIA.first, main="PACF: DJIA Diff Series")
+  
+```
+
+##Part 3 - Multi-Variate Model Building
+
+##Robbery and DJIA
+
+Comparing the trends show a negative correlation.  However, they appear to be positively correlated up to 2013.
+```{r}
+# Comparing trends
+robbery.dec <- decompose(robbery.ts, type = c("additive", "multiplicative"), filter = NULL)
+DJIA.dec <- decompose(DJIA.ts, type = c("additive", "multiplicative"), filter = NULL)
+par(mar = c(5,5,3,5))
+plot(robbery.dec$trend, col = "Blue", ylab = "Monthly robbery")
+#axis(side = 0)
+par(new = T)
+plot(DJIA.dec$trend, pch=16, axes=F, xlab=NA, ylab=NA, cex=1.2)
+axis(side = 4)
+mtext(side = 4, line = 3, 'Monthly DJIA')
+leg.txt <- c("robbery", "DJIA")
+legend("right", legend=leg.txt, lty=c(2,1), col=c("blue","black"),
+       bty='n', cex=1)
+```
+
+The two series - robbery and DJIA - are negatively correlated at 10% 
+```{r}
+# The two series appear to be negatively correlated
+# Checking correlation
+cor.test(robbery.ts, DJIA.ts)
+# Highly significant negative correlation, as expected
+```
+
+The two series - robbery and DJIA - are cointegrated
+```{r}
+# Checking cointegration between the two series
+po.test(cbind(robbery.ts, DJIA.ts))
+# The null hypothesis can be rejected.
+# The series are definitely cointegrated.
+```
+
+Creating a VAR model with first difference and p = 1 leads to insignificant coefficients. Also, forecasting on differenced values does not make sense because it is difficult to recover the original series.  We only ran this for robbery since this yielded the same results for all of the other crime types.
+```{r}
+#Find best p order using VARselect
+# Use stationary series in VAR model to minmize spurious correlations
+VARselect(cbind(robbery.first, DJIA.first), lag.max = 10, type="both")
+# choose p=1 as lowest AIC
+robbery.var<-VAR(cbind(robbery.first, DJIA.first), p=1)
+coef(robbery.var)
+acf(resid(robbery.var))
+# residuals look like white noise 
+
+```
+##Auto Larceny and DJIA
+
+Comparing the trends show a negative correlation.
+```{r}
+# Comparing trends
+auto_larceny.dec <- decompose(auto_larceny.ts, type = c("additive", "multiplicative"), filter = NULL)
+DJIA.dec <- decompose(DJIA.ts, type = c("additive", "multiplicative"), filter = NULL)
+par(mar = c(5,5,3,5))
+plot(auto_larceny.dec$trend, col = "Blue", ylab = "Monthly auto_larceny")
+#axis(side = 0)
+par(new = T)
+plot(DJIA.dec$trend, pch=16, axes=F, xlab=NA, ylab=NA, cex=1.2)
+axis(side = 4)
+mtext(side = 4, line = 3, 'Monthly DJIA')
+leg.txt <- c("auto_larceny", "DJIA")
+legend("right", legend=leg.txt, lty=c(2,1), col=c("blue","black"),
+       bty='n', cex=1)
+```
+
+The two series - Auto Larceny and DJIA - are negatively correlated
+```{r}
+# The two series appear to be negatively correlated
+# Checking correlation
+cor.test(auto_larceny.ts, DJIA.ts)
+# Highly significant negative correlation, as expected
+```
+
+The two series - Auto Larceny and DJIA - are cointegrated at 10%
+```{r}
+# Checking cointegration between the two series
+po.test(cbind(auto_larceny.ts, DJIA.ts))
+# The null hypothesis can be rejected.
+# The series are definitely cointegrated.
+```
+
+##Assault and DJIA
+
+Comparing the trends show a high positive correlation.
+```{r}
+# Comparing trends
+assault.dec <- decompose(assault.ts, type = c("additive", "multiplicative"), filter = NULL)
+DJIA.dec <- decompose(DJIA.ts, type = c("additive", "multiplicative"), filter = NULL)
+par(mar = c(5,5,3,5))
+plot(assault.dec$trend, col = "Blue", ylab = "Monthly assault")
+#axis(side = 0)
+par(new = T)
+plot(DJIA.dec$trend, pch=16, axes=F, xlab=NA, ylab=NA, cex=1.2)
+axis(side = 4)
+mtext(side = 4, line = 3, 'Monthly DJIA')
+leg.txt <- c("assault", "DJIA")
+legend("right", legend=leg.txt, lty=c(2,1), col=c("blue","black"),
+       bty='n', cex=1)
+```
+
+The two series - Assault and DJIA - are positively correlated
+```{r}
+# The two series appear to be negatively correlated
+# Checking correlation
+cor.test(assault.ts, DJIA.ts)
+# Highly significant negative correlation, as expected
+```
+
+The two series - Assault and DJIA - are cointegrated
+```{r}
+# Checking cointegration between the two series
+po.test(cbind(assault.ts, DJIA.ts))
+# The null hypothesis can be rejected.
+# The series are definitely cointegrated.
+```
+
+##Murder and DJIA
+
+Comparing the trends show a negative correlation.
+```{r}
+# Comparing trends
+murder.dec <- decompose(murder.ts, type = c("additive", "multiplicative"), filter = NULL)
+DJIA.dec <- decompose(DJIA.ts, type = c("additive", "multiplicative"), filter = NULL)
+par(mar = c(5,5,3,5))
+plot(murder.dec$trend, col = "Blue", ylab = "Monthly Murder")
+#axis(side = 0)
+par(new = T)
+plot(DJIA.dec$trend, pch=16, axes=F, xlab=NA, ylab=NA, cex=1.2)
+axis(side = 4)
+mtext(side = 4, line = 3, 'Monthly DJIA')
+leg.txt <- c("Murder", "DJIA")
+legend("right", legend=leg.txt, lty=c(2,1), col=c("blue","black"),
+       bty='n', cex=1)
+```
+
+The two series - Murder and DJIA - are negatively correlated
+```{r}
+# The two series appear to be negatively correlated
+# Checking correlation
+cor.test(murder.ts, DJIA.ts)
+# Highly significant negative correlation, as expected
+```
+
+The two series - Murder and DJIA - are cointegrated
+```{r}
+# Checking cointegration between the two series
+po.test(cbind(murder.ts, DJIA.ts))
+# The null hypothesis can be rejected.
+# The series are definitely cointegrated.
+```
+
+## Model Selection
+1. All of the series are non-stationary.
+2. 3/4 of the series can be concluded to be cointegrated except for auto-larceny, which we can assume cointegrated based on the p-value being slightly above 10%.
+3. Based on the two points above, VAR is not an appropriate multivariate model for modeling the crime and DJIA series. The two variables (type of crime and DJIA) have to be used in their first difference to be appropriate in the VAR model. As such, the forecast will be on the differences and not the actual values.
+4. Hence, we are choosing the VECM model to forecast the series.
+
+###VECM Modeling
+A vector error correction model is a restricted VAR that has cointegration restricitions built into the specificiation, so that it is designed for use with nonstationary series that are known to be cointegrated. When the series levels are nonstationary the estimtated regression cannot be trusted. That's why we test for cointegration. We found that cointegration exists in all of our relationships, so a VECM which combines differences and levels is a better model for forecasting here. We could make the series stationary for use in VAR, but then we would be stuck with VAR in differences, which would make it hard to forecast.
+
+###Robbery and DJIA
+```{r}
+r.vecm <- VECM(cbind(robbery.ts, DJIA.ts), include = c("const"), estim = "ML", lag = 12)
+
+# Checking residuals
+acf(r.vecm$residuals)
+r.resid<-r.vecm$residuals
+hist(r.resid, breaks="FD", col="blue", main="Residual Series")
+qqnorm(r.resid, main="Normal Q-Q Plot of the Residuals")
+qqline(r.resid, col="blue")
+Box.test(r.resid[,1], type="Ljung-Box") # Assault
+Box.test(r.resid[,2], type="Ljung-Box") # DJIA
+# No autocorrelation between the residuals
+
+# 12-step forecast with VECM
+r.vecm.pred <- predict(r.vecm, n.ahead = 12)
+
+# Comparing assault Actual 2015 data to Forecast
+r.actual <- data$robbery[data$date >= "2015-01-01"]
+r.forecast <- round(r.vecm.pred[,1])
+
+r.delta <- r.forecast - r.actual
+summary(r.delta)
+mean(r.actual)
+quantile(r.delta)
+# Mean of the difference is close to -5.
+
+# Forecast, Actual, Delta assault
+cbind(r.forecast, r.actual, r.delta)
+
+# Checking accuracy of forecast with RMSE
+r.rms <- sqrt(mean(r.delta^2))
+r.rms
+```
+Looking at the root mean squared error and the deltas between the forecast and actuals of robbery and DJIA, the model indicates a poor forecast accuracy.  There are spikes in the summer months which are not accounted well in the model.  This is not in line with our hypothesis that robbery - a material crime - is more likely to be correlated with DJIA - an economic indicator than a non-material crime.
+
+###Plotting Robbery actual v forecast
+```{r}
+# Plotting murder actual v forecast
+plot.ts(r.forecast, col ="red", main = "Monthly Robbery\nForecast v Actual", 
+        ylab = "Number Robberies", ylim = c(800,1700))
+par(new = T)
+plot.ts(r.actual, col ="blue",
+        ylab = "", ylim = c(800,1700))
+leg.txt <- c("Forecast", "Actual")
+legend("topright", legend=leg.txt, lty=c(2,1), col=c("red","blue"),
+       bty='n', cex=0.75)
+
+# Overlaying actual and forecasted valued of robbery
+r.orig<- data$robbery[c(1:96)]
+
+r.plus.fcst<-c(r.orig, r.forecast)
+r.plus.fcst.timeseries<-ts(r.plus.fcst, start(2007,1), frequency = 12)
+
+r.orig.full<- data$robbery[c(1:108)]
+r.orig.full.timeseries<-ts(r.orig.full, start(2007,1), frequency = 12)
+
+par(mfrow = c(1,1))
+plot(r.plus.fcst.timeseries, main="Robbery in NYC\nOverlay of actual and forecasted series",
+     xlab="Time Period", ylab="Original, Estimated, and Forecasted Values",
+     xlim=c(), col="red", lty = 2)
+par(new = T)
+lines(r.orig.full.timeseries,col="black", lty = 1)  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topleft", legend=leg.txt, lty=c(1,2), 
+       col=c("black","red"), bty='n', cex=0.75)
+```
+
+###Auto Larency and DJIA
+```{r}
+al.vecm <- VECM(cbind(auto_larceny.ts, DJIA.ts), include = c("const"), estim = "ML", lag = 12)
+
+# Checking residuals
+acf(al.vecm$residuals)
+al.resid<-al.vecm$residuals
+hist(al.resid, breaks="FD", col="blue", main="Residual Series")
+qqnorm(al.resid, main="Normal Q-Q Plot of the Residuals")
+qqline(al.resid, col="blue")
+Box.test(al.resid[,1], type="Ljung-Box") # Auto Larceny
+Box.test(al.resid[,2], type="Ljung-Box") # DJIA
+# No autocorrelation between the residuals
+
+# 12-step forecast with VECM
+al.vecm.pred <- predict(al.vecm, n.ahead = 12)
+
+# Comparing assault Actual 2015 data to Forecast
+al.actual <- data$auto_larceny[data$date >= "2015-01-01"]
+al.forecast <- round(al.vecm.pred[,1])
+
+al.delta <- al.forecast - al.actual
+summary(al.delta)
+mean(al.actual)
+quantile(al.delta)
+# Mean of the difference is close to -5.
+
+# Forecast, Actual, Delta assault
+cbind(al.forecast, al.actual, al.delta)
+
+# Checking accuracy of forecast with RMSE
+al.rms <- sqrt(mean(al.delta^2))
+al.rms
+```
+Looking at the root mean squared error and the deltas between the forecast and actuals of robbery and DJIA, the model indicates good forecast accuracy.  There are spikes in the summer months, as the other time series, which are not accounted well in the model.  However, the model does show correlation between auto-larceny and DJIA. This is in line with our hypothesis that auto-larceny - a material crime - is more likely to be correlated with DJIA - an economic indicator than a non-material crime.
+
+###Plotting Auto Larcency actual v forecast
+```{r}
+# Plotting murder actual v forecast
+plot.ts(al.forecast, col ="red", main = "Monthly Auto Larceny\nForecast v Actual", 
+        ylab = "Number Auto Larceny", ylim = c(400,800))
+par(new = T)
+plot.ts(al.actual, col ="blue",
+        ylab = "", ylim = c(400,800))
+leg.txt <- c("Forecast", "Actual")
+legend("topright", legend=leg.txt, lty=c(2,1), col=c("red","blue"),
+       bty='n', cex=0.75)
+
+# Overlaying actual and forecasted valued of robbery
+al.orig<- data$auto_larceny[c(1:96)]
+
+al.plus.fcst<-c(al.orig, al.forecast)
+al.plus.fcst.timeseries<-ts(al.plus.fcst, start(2007,1), frequency = 12)
+
+al.orig.full<- data$auto_larceny[c(1:108)]
+al.orig.full.timeseries<-ts(al.orig.full, start(2007,1), frequency = 12)
+
+par(mfrow = c(1,1))
+plot(al.plus.fcst.timeseries, main="Auto Larceny in NYC\nOverlay of actual and forecasted series",
+     xlab="Time Period", ylab="Original, Estimated, and Forecasted Values",
+     xlim=c(), ylim=c(400, 2200), col="red", lty = 2)
+par(new = T)
+lines(r.orig.full.timeseries,col="black", lty = 1)  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topleft", legend=leg.txt, lty=c(1,2), 
+       col=c("black","red"), bty='n', cex=0.75)
+
+```
+
+###Assault and DJIA
+```{r}
+a.vecm <- VECM(cbind(assault.ts, DJIA.ts), include = c("const"), estim = "ML", lag = 12)
+
+# Checking residuals
+acf(a.vecm$residuals)
+a.resid<-a.vecm$residuals
+hist(a.resid, breaks="FD", col="blue", main="Residual Series")
+qqnorm(a.resid, main="Normal Q-Q Plot of the Residuals")
+qqline(a.resid, col="blue")
+Box.test(a.resid[,1], type="Ljung-Box") # Assault
+Box.test(a.resid[,2], type="Ljung-Box") # DJIA
+# No autocorrelation between the residuals
+
+# 12-step forecast with VECM
+a.vecm.pred <- predict(a.vecm, n.ahead = 12)
+
+# Comparing assault Actual 2015 data to Forecast
+a.actual <- data$assault[data$date >= "2015-01-01"]
+a.forecast <- round(a.vecm.pred[,1])
+
+a.delta <- a.forecast - a.actual
+summary(a.delta)
+mean(a.actual)
+quantile(a.delta)
+# Mean of the difference is close to -5.
+
+# Forecast, Actual, Delta assault
+cbind(a.forecast, a.actual, a.delta)
+
+# Checking accuracy of forecast with RMSE
+a.rms <- sqrt(mean(a.delta^2))
+a.rms
+```
+
+The root mean squared error and the deltas between the forecast and actuals of assault and DJIA give us an indication that this model is a good forecast.  There are spikes in the summer months which are not accounted well in the model.  However, the model does show that assault and DJIA are highly correlated.  This is not in line with our hypothesis that assault - a non-material crime - is less likely to be correlated with DJIA - an economic indicator than a material crime.
+
+###Plotting Assault actual v forecast
+```{r}
+# Plotting murder actual v forecast
+plot.ts(a.forecast, col ="red", main = "Monthly Assault\nForecast v Actual", 
+        ylab = "Number Assaults", ylim = c(1200,2200))
+par(new = T)
+plot.ts(a.actual, col ="blue",
+        ylab = "", ylim = c(1200,2200))
+leg.txt <- c("Forecast", "Actual")
+legend("topright", legend=leg.txt, lty=c(2,1), col=c("red","blue"),
+       bty='n', cex=0.75)
+
+# Overlaying actual and forecasted valued of assault
+a.orig<- data$assault[c(1:96)]
+
+a.plus.fcst<-c(a.orig, a.forecast)
+a.plus.fcst.timeseries<-ts(a.plus.fcst, start(2007,1), frequency = 12)
+
+a.orig.full<- data$assault[c(1:108)]
+a.orig.full.timeseries<-ts(a.orig.full, start(2007,1), frequency = 12)
+
+par(mfrow = c(1,1))
+plot(a.plus.fcst.timeseries, main="Assault in NYC\nOverlay of actual and forecasted series",
+     xlab="Time Period", ylab="Original, Estimated, and Forecasted Values",
+     xlim=c(), col="red", lty = 2)
+par(new = T)
+lines(a.orig.full.timeseries,col="black", lty = 1)  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topleft", legend=leg.txt, lty=c(1,2), 
+       col=c("black","red"), bty='n', cex=0.75)
+```
+
+
+###Murder and DJIA
+```{r}
+m.vecm <- VECM(cbind(murder.ts, DJIA.ts), include = c("const"), estim = "ML", lag = 12)
+
+# Checking residuals
+acf(m.vecm$residuals)
+m.resid<-m.vecm$residuals
+hist(m.resid, breaks="FD", col="blue", main="Residual Series")
+qqnorm(m.resid, main="Normal Q-Q Plot of the Residuals")
+qqline(m.resid, col="blue")
+Box.test(m.resid[,1], type="Ljung-Box") # Murder
+Box.test(m.resid[,2], type="Ljung-Box") # DJIA
+# No autocorrelation between the residuals
+
+# 12-step forecast with VECM
+m.vecm.pred <- predict(m.vecm, n.ahead = 12)
+
+# Comparing murder Actual 2015 data to Forecast
+m.actual <- data$murder[data$date >= "2015-01-01"]
+m.forecast <- round(m.vecm.pred[,1])
+
+m.delta <- m.forecast - m.actual
+summary(m.delta)
+mean(m.actual)
+quantile(m.delta)
+# Mean of the difference is close to -5.
+
+# Forecast, Actual, Delta murder
+cbind(m.forecast, m.actual, m.delta)
+
+# Checking accuracy of forecast with RMSE
+m.rms <- sqrt(mean(m.delta^2))
+m.rms
+```
+Given that the actual average rate of murder in 2015 is 27, the average delta as well as the root mean square error show that the forecast is not that close to actual. There are 3 observations - Jan 2015, May 2015, and August 2015 that show spikes in the actual murder data. These spikes are not accounted for in the vecm model.
+
+Without the three spiky observations, the forecast is much closer to the actual values for murder.
+
+To conclude, DJIA is weakly correlated to murder, and so the underlying model we chose based on the DJIA is not a good model for murder. This is in line with our hypothesis that murder - a non-material crime is less likely to be correlated with DJIA - an economic indicator.
+
+**Note: You can arrive at similar conclusions for the other crimes, and just have a point for each crime in conclusion. Mary's larceny analysis shows that it is closely correlated to DJIA, which is also in line with our hypothesis. Not sure how assault and robbery look.
+
+###Plotting DJIA actual v forecast
+```{r}
+# Plotting murder actual v forecast
+plot.ts(m.forecast, col ="red", main = "Monthly Murder\nForecast v Actual", 
+        ylab = "Number Murders", ylim = c(10,40))
+par(new = T)
+plot.ts(m.actual, col ="blue",
+        ylab = "", ylim = c(10,40))
+leg.txt <- c("Forecast", "Actual")
+legend("topright", legend=leg.txt, lty=c(2,1), col=c("red","blue"),
+       bty='n', cex=0.75)
+
+# Overlaying actual and forecasted valued of murder
+m.orig<- data$murder[c(1:96)]
+
+m.plus.fcst<-c(m.orig, m.forecast)
+m.plus.fcst.timeseries<-ts(m.plus.fcst, start(2007,1), frequency = 12)
+
+m.orig.full<- data$murder[c(1:108)]
+m.orig.full.timeseries<-ts(m.orig.full, start(2007,1), frequency = 12)
+
+par(mfrow = c(1,1))
+plot(m.plus.fcst.timeseries, main="Murder in NYC\nOverlay of actual and forecasted series",
+     xlab="Time Period", ylab="Original, Estimated, and Forecasted Values",
+     xlim=c(), col="red", lty = 2)
+par(new = T)
+lines(m.orig.full.timeseries,col="black", lty = 1)  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topleft", legend=leg.txt, lty=c(1,2), 
+       col=c("black","red"), bty='n', cex=0.75)
+```
+
+##Final Conclusion
+
+###Re-instating the question
+
+**Is crime of material nature in NYC more correlated with a global economic factor - in this case the Dow Jones Industrial Average - than crime of non material nature and can the economic indicator DJIA be used to forecast the crimes?**
+
+Answering the original question, we cannot conclude that crime in NYC of material nature, in this case Robbery and Auto Larceny, are more correlated with a global economic factor - DJIA - than crimes of non material nature, in this case Assault and Murder.  This is because we observed higher correlation with Grand Larceny (material crime) and Assault (non-material crime) to DJIA than we observed with Robbery (material) and Murder (non-material).
+
+In terms of forecasting, since Grand Larceny and Assault yield a higher correlation and higher forecast accuracy, we can use these two models to forecast the DJIA.
+

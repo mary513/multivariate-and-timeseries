@@ -1,0 +1,187 @@
+---
+title: "HW 7 & 8"
+author: "Mary Lewis"
+date: "November 20, 2016"
+output: pdf_document
+---
+
+```{r warning=FALSE, message=FALSE}
+rm(list=ls())
+options(digits=4) 
+library(astsa)
+library(data.table)
+library(forecast)
+prelim<-read.csv("C:/DEXUSEU_weekly.csv")
+prelim<-data.table(prelim)
+```
+
+#1) 
+Data are weekly, starting Nov. 4, 2011, ending Oct 28, 2016. THere are no missing values - no NA
+and no zeros as exchange rate values
+
+```{r}
+
+str(prelim)
+summary(prelim)
+nrow(prelim)
+head(prelim)
+tail(prelim)
+max(as.Date(prelim$DATE))
+min(as.Date(prelim$DATE))
+hist(prelim$DEXUSEU, main="Histogram of Exchange rate 2011-2016")
+sum(is.na(prelim$DATE))
+sum(is.na(prelim$DEXUSEU))
+
+```
+
+#2) What are the pros and cons of using data frame to analyze time series?
+Using data frame vs ts object. The ts object has access to  more built-in functions for time series 
+analysis including the understanding and manipulation of dates and frequencies.
+Data frame has no intrinsic understanding of time. The ts object will provide access to other
+timeseries related libraries and functions, including fitting models and forecasting, as well as 
+plotting multiple series and decompose functions.
+However, for a simple plot with only a single time series, a dataframe object and plot.ts()  + dataframe 
+can be used. But generally better to use ts class 
+
+#3) Subset to use just 2015-2016. Remove last 6 weeks of 2016 data
+```{r}
+prelim<-subset(prelim, as.Date(prelim$DATE)>as.Date("2014-12-31"))
+prelim<-prelim[1:(nrow(prelim)-6),]
+tail(prelim)
+nrow(prelim)
+```
+#4) Create ts object and plot. Discuss plot below
+```{r}
+des.ts<-ts(prelim$DEXUSEU, start = c(2015, 1), end=c(2016,38), frequency = 52)
+plot(des.ts,main="DEXUSEU Time series", col="blue", ylab="Values", xlab="Weeks 2015-2016")
+```
+The ts plot has some autocorrelation: at the start of 2015 it consistently declines for several weeks; 
+again at the start of 2016 it consistently increases for a number of weeks. 
+However, there are also elements of white noise. Overall I would say it is not a pure 
+AR model but has strong elements of AR. At this point, best guess is that it might be a mixed model.
+```{r}
+acf(des.ts)
+pacf(des.ts)
+```
+# 5) Looking at the ACF and PACF: they have elements of AR but not strictly AR.  
+For a stationary time series, the ACF will decay to zero quickly; Highly autocorrelated
+series will decay very slowly to zero. 
+Since this ACF decays after about 6 lags, it's more similar to stationary but not pure stationary. 
+The PACF supports this, as it decays quicky to zero at the first lag. 
+Since the PACF decays to zero after lag1, this would indicate we should start with AR(1) series 
+and build on it if needed, adding MA (q lagged) terms and checking AIC/BIC. 
+Weak stationarity requires that the timeseries is stationary in the mean and the variance. 
+It appears this series has strong elements of AR but is probably not strictly AR.
+
+# 6) Examine residuals
+```{r}
+ar1<-ar(des.ts)
+ar1$aic
+str(ar1)
+```
+# 7) Which model is selected based on the AIC? What does AIC measure? What are them pros and cons of using AIC to select model.
+AR fit indicates AR order 2 which has the lowest AIC (zero).
+AIC = Akaike Information Criterion indicates the best model
+fit by weighting the number of parameters vs. the log-likelihood in the following equation:
+AIC = 2 * num_parameters - 2 ln(max likelihood)
+Model with the lowest AIC is generally the best fit, but may not always be the case. 
+Models with more parameters are penalized as the lowest AIC indicates best model. 
+AIC awards simplicity and parsimony. 
+Pros of AIC are described above, however, as we saw in the async examples, AIC might choose a higher 
+order model than the original stochastic process. (we know this because in the sample scripts 
+we generated the process manually.)
+Thus it's good to examine other indicators like BIC, and also to
+fit other type of models (e.g ARMA combination model) and re-calculate the AIC. 
+
+# Question 8 Examine residuals and discuss
+```{r}
+dev.off()
+head(ar1$resid)
+head(ar1$resid[-c(1:2)], 15)
+resid<-ar1$resid[-c(1:2)]
+par(mfrow=c(3,1))
+plot(resid, type="l", main="Residuals: t-plot")
+acf(resid, main="ACF of the Residual Series")
+pacf(resid, main="PACF of the Residual Series")
+hist(resid, breaks="FD", col="blue", main="Residual Series")
+qqnorm(resid, main="Normal Q-Q Plot of the Residuals")
+qqline(resid, col="blue")
+Box.test(ar1$resid, type="Ljung-Box") 
+```
+# Discuss results
+Box-Pierce test, p-value = 0.2
+Cannot reject the Null hypothesis. i.e. residual series is independent
+Residuals plot suggests white noise. THe ACF and PACF confirm there is no autocorrelation and that the PACF oscillates around zero, which is indicative of white noise. 
+Histogram is slightly left skewed, mostly normal, QQplot reflects the same - normal but left skewed.  
+What would a white noise series look like? 
+White noise is is stationary about the mean: it will generate a normal histogram when sample 
+size is large (central limit theorem). 
+The residuals of this series are very similar to white noise, there is little/no autocorrelation 
+in the residuals, so we can assume AR(2) is a good fit
+
+#9) Compute the 95% confidence intervals of the parameter estimates. Explain the results.
+In this case we use the ar.forecast to generate a confidence interval of the fit parameter.
+This is because the forecast itself is based on the parameter of the model. Confidence interval for the
+series is calculated at each time point, there is no single confidence interval across the entire series
+see: goo.gl/BWtuhQ
+At each point in time, 95% of possible values would lie between these points. 
+Compute the forecast
+Extract upper and lower values for 95% confidence interval.
+Meaning: 95% of forecasted samples of this time series will lie between these intervals. 
+Compute confidence interval:
+```{r}
+ar1.fcast <- forecast.ar(ar1, h=6, level=c(95))
+ar1.fcast$lower
+ar1.fcast$upper
+
+```
+
+#10) Produce 6 steps forecast. Explain your results. How well does it compare?
+ 
+```{r}
+ar1.fcast$mean
+```
+forecast	actual	delta	    % accuracy to actual
+1.12	  1.1194	  0.0006	   0.000536001
+1.118	  1.1232	  -0.0052	  -0.00462963
+1.117	  1.1186	  -0.0016	  -0.001430359
+1.115	  1.1025	  0.0125	  0.011337868
+1.115	  1.0953	  0.0197	  0.01798594
+1.114	  1.0911	  0.0229	  0.020987994
+
+Forecast was very accurate, at worst it was 2% different than actual.  
+
+```{r}
+dev.off()
+plot(ar1.fcast, main="Forecast 6 weeks of Exchange Rates",
+     xlab="Simulated Time Period", ylab="Original, Estimated, and Forecasted Values",
+     xlim=c(), lty=2, col="navy")
+lines(fitted(ar1),col="red")  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topright", legend=leg.txt, lty=c(2,1), 
+       col=c("navy","red"), bty='n', cex=1)
+
+```
+
+## Extra code to find best model
+
+```{r}
+######### BEST MODEL
+combined<- arima(des.ts, order=c(1,0,2))
+combined$aic
+bic<-AIC(combined,k = log(1))
+bic
+
+## not as good
+combined1 <- arima(des.ts, order=c(2,0,1))
+combined1$aic
+bic<-AIC(combined1,k = log(1))
+bic
+
+##not as good
+combined2 <- arima(des.ts, order=c(2,0,2))
+combined2$aic
+bic<-AIC(combined2,k = log(1))
+bic
+```
+

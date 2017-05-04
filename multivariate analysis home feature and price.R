@@ -1,0 +1,278 @@
+rm(list=ls())
+library(car)
+library(lmtest)
+library(sandwich)
+library(data.table)
+
+#1)
+#Load & examine the structure of the data
+#Provide descriptive statistics of the data
+#Identify if there are unreasonable values, top-coding, and bottom-coding. 
+# If any of these is found, propose your strategy to handle them.
+load("C:/house.RData")
+house <- data.table(data)
+str(house)
+desc
+nrow(house)
+summary(house)
+
+# There are no NA and no zero values. 
+# Next section EDA will reveal (histograms) if there are top or bottom 
+# coded values, or if there should be any such imposed.
+# There seem to be outliers based on median and max:  lotsize (92681) and bdrms (6, 7)
+# Later testing will reveal if they are impacting regression results
+
+# Min lot size seems too small : test if this lot is smaller than sqrft
+
+sum(house$lotsize < house$sqrft)
+# One home is larger than its lot. Although this is possible in urban areas, 
+# I would argue that a in such an analysis, we should compare similar real estate types.
+# If we are comparing urban vs. suburban homes, there should be an indicator, similar to colonial
+# Hence, remove this observation. 
+house<-subset(house, house$lotsize > house$sqrft)
+nrow(house)
+
+
+#2) Conduct univariate and mulitvariate analysis
+#Conduct EDA, including both univariate and multivariate analyses, on this dataset.
+#For each of the variables, discuss potential feature engineering 
+#(i.e. transformation of original variables, creation of a categorical variable 
+#from a numeric variable, creation of interaction among variables, etc) 
+#you may perform in later regression model building steps.
+
+
+# Price
+# Price is right/positive skewed and log(price) corrects this. Price is not negative and
+# natrually lends itself to log transformation
+hist(house$price)
+hist(log(house$price))
+
+### ???????????????????????????????????????????????????????
+# Sqft
+# sqft is right/positive skewed but log doesn't correct this
+# Sqft might have more significance if recoded as an ordinal variable in buckets
+# especially as an interaction term. Will explore this later as needed.
+hist(house$sqrft, breaks=100)
+hist(log(house$sqrft), breaks=100)
+
+# Lotsize
+# One extreme outlier over 80,000 sqft. 
+# Suspicion that this outlier will impact cook's distance in regression diagnosticslater on
+# Lotsize might have more significance if recoded as an ordinal variable in buckets. 
+# Will explore this as needed
+# Somewhat right skewed but probably no need to use log
+hist(house$lotsize, breaks=100)
+
+# Bdrms
+# There are 2 outliers for bdrms, one house with 6 and one house with 7 bdrms. 
+# Later diagnostics will ascertain if these are impacting regression results.
+hist(house$bdrms, breaks=100)
+
+# Colonial is a factor/binary variable (can be understood similar to male/female)
+
+scatterplotMatrix(~house$price + house$sqrft + house$bdrms + house$lotsize)
+#sqft vs log(price) almost linear
+scatterplot(house$sqrft, log(house$price))
+#bdrms vs log(price) not linear
+scatterplot(house$bdrms, log(house$price))
+#lotsize vs log(price) not linear
+scatterplot(house$lotsize, log(house$price))
+#bedrooms and lot_size are non-linear to log(price)
+
+# Test for multicollinearity
+# No collinearity between sqft, bdrms, and lotsize
+model_vif<-lm(house$price ~ house$sqrft + house$bdrms + house$lotsize)
+vif(model_vif)
+sqrt(vif(model_vif)) > 2
+
+#3) Use linear model: pricei=??0+??1sqrfti+??2bdrmsi+??3lotsizei+??i
+# Interpret the coefficient estimates, including ??^0
+
+# First test the model by diagnostics and make adjustments. Then interpret coefs.
+model1<-lm(house$price ~ house$sqrft + house$bdrms + house$lotsize)
+summary(model1)
+#Based on regr diagnostics, sum of residuals does not have a mean of zero 
+# and residuals are not homoscedastic
+plot(model1, 1)
+plot(model1, 2)
+plot(model1, 3)
+plot(model1, 5)
+# Observation #76 is outside of Cook's distance, but observations 42 and 72 are borderline. 
+
+# Remove observation 76
+house_rm<-house[-c(76), ]
+
+model1<-lm(house_rm$price ~ house_rm$sqrft + house_rm$bdrms + house_rm$lotsize)
+#Error terms is not linear; residuals are heteroscedastic 
+summary(model1)
+plot(model1, 1)
+plot(model1, 2)
+plot(model1, 3)
+plot(model1, 5)
+
+# No points outside of cooks distance and all variables are significant
+
+# The intercept ??0 reflects the log of house price when all other coefficients are zero.
+# It has no real world interpretation as lotsize/price can't be zero
+# Although sqft could be zero, if the property was land only. 
+
+# Coef on sqrft is the amount the price changes with each additional sqrft, so for each 
+# additional sqrft the price increases by .083k, or $83 dollars
+
+# Coef on bdrms is the amount the price changes with each additional bedroom, so for each 
+# additional sqrft, the price increases by 21.640k, or +$21,640 dollars
+
+# Coef on lotsize is the amount the price changes with each additional sqrft of land, so for each 
+# additional sqrft the price increases by .009k, or $9 dollars
+
+# 2) Part 2 ****************************************
+# Respecify the model to use log(price)
+# Interpret the coefficient estimate associated with the variable bdrms.
+
+# Coef on bdrms is the percent change in price per additional bedroom, .0436
+# Each additional bedroom yields a 4.36% increase in house price
+
+model2<-lm(log(house$price) ~ house$sqrft + house$bdrms + house$lotsize)
+summary(model2)
+# Bedrooms no longer significant when looking at log(price)
+plot(model2, 1)
+plot(model2, 2)
+plot(model2, 3)
+plot(model2, 5)
+
+#Obs #76 again outside of cook's distance, even when using log(price) so definitely 
+# remove this from the data set going fwd
+
+house<-house[-c(76), ]
+model2<-lm(log(house$price) ~ house$sqrft + house$bdrms + house$lotsize)
+
+summary(model2)
+#avg of residuals is almost linear at zero, somewhat heteroscedastic
+# no points outside cook's distance
+plot(model2, 1)
+plot(model2, 2)
+plot(model2, 3)
+plot(model2, 5)
+
+# observations 75 and 79 were anomalies in above diagnostics, examine these 2:
+house[75]
+house[79]
+mean(house$price[house$bdrms==3])
+mean(house$price[house$bdrms==4])
+#Both observations have prices well off the mean price for same bedrooms
+# Remove these 2 observations to see what will happen, but create a diferent dataset. 
+# Probably we shouldn't really remove these ? as they are technically not outside of cook's distance 
+# Create a separate data set to examine the effect of removing these 2 observations:.
+
+house2<-house[-c(75, 79), ]
+model_house2<-lm(log(house2$price) ~ house2$sqrft + house2$bdrms + house2$lotsize)
+summary(model_house2)
+# number of bedrooms is now significant at 5%  
+
+#Examine diagnostics of this model:
+plot(model_house2, 1)
+plot(model_house2, 2)
+plot(model_house2, 3)
+plot(model_house2, 5)
+
+# Residuals are almost linear at zero, but still heterscedastic,
+# maybe because fewer observations at higher prices 
+
+# 4)
+#The management suspects that colonial-style properties (variable colonial = 1) have higher prices.
+#Respecify the regression above and re-estimate the regression model to address this
+#Intrepret the coefficient(s) of interest.
+ 
+# Regression indicates that on average, a colonial style home yields an 11% increase in house price. 
+# Since the variable is a factor (0 or 1) the regression line for both colonial and non-colonial homes has the
+# same slope, but the y-intercept will shift by the coefficient on colonial.
+# The y intercept is the log, which equates to percent increase in y for each unit increase in x.
+# The coef on colonial is the difference in intercepts on log(price),i.e. difference in percent price 
+# betwen non-colonial and colonial homes.
+
+model_col<-lm(log(house$price) ~ house$colonial+ house$sqrft + house$bdrms + house$lotsize)
+summary(model_col)
+# If a house is colonial, the price increases by 11% on average, significant at 5%, 
+# holding bedrooms, lotsize, and sqft constant. 
+# The regression lines is parallel to non-colonial, a fixed distance above it.
+
+#5)
+#The management suspects that the effect of the number of bedrooms on price is nonlinear.
+#Respecify the regression above and re-estimate the regression model to address this particular question 
+#Note that there are a few ways to capture nonlinear effect. 
+#You are asked to experiment to at least 2 approaches to capture the nonlinear effect.
+# This question is slightly open-ended. So, please explain your approach and the results clearly.
+scatterplot(house$bdrms, log(house$price))
+
+sum(house$bdrms==2)
+sum(house$bdrms==3)
+sum(house$bdrms==4)
+sum(house$bdrms==5)
+sum(house$bdrms==6)
+sum(house$bdrms==7)
+# Only 2 houses have more than 5 bedrooms. These could impact the result
+
+#Create dummy variables
+# Bedrms == 2 will be intercept
+# since there are only 2 homes with >5 bdrm, create variable: 5+ bedrm
+house$bd3<-ifelse(house$bdrms==3, 1, 0)
+house$bd4<-ifelse(house$bdrms==4, 1, 0)
+house$bd5plus<-ifelse(house$bdrms>=5, 1, 0)
+
+model_bedrm<-lm(log(house$price) ~  house$bd3 + house$bd4 + house$bd5plus + house$lotsize + house$sqrft)
+# 5 plus bedrooms is significant at 10%
+# Residual errors are still heteroscedastic.
+summary(model_bedrm)
+plot(model_bedrm, 1)
+plot(model_bedrm, 2)
+plot(model_bedrm, 3)
+plot(model_bedrm, 5)
+
+# Interpret non-linearity of coefs:
+# Bedrm = 2 is the baseline case. 
+# Bedrm = 3 shows 7% increase in price (since price is in log)
+# Bedrm = 4 shows 4% increase in price above bdrm==3 , i.e. 11% above bdrm==2
+# Bedrm = 5plus shows 23% increase above 4 bdrm or 34% above bdrm==2
+# Should probably use exponential to translate:
+# Exact increase is 100*[exp(B(5bdrm))-1] or 100*[1-exp(..34)] = 40% increase above bdrm=2.
+# clearly a non-linear relationship as bedrooms increases. 
+
+# Part 2 - second approach to non-linearity; distribution is right skewed, try sqrt of bedrooms
+model_bedrm_sqrt<-lm(log(house$price) ~  house$bdrms + sqrt(house$bdrms) + house$lotsize + house$sqrft)
+# The coef on sqrt(bdrms) is -0.74. This is close to 
+#Model does not show signifcant for bedrooms
+
+summary(model_bedrm_sqrt)
+#Residuals are similar to what we've seen previously. No leverage at .5 or 1.
+plot(model_bedrm_sqrt, 1)
+plot(model_bedrm_sqrt, 2)
+plot(model_bedrm_sqrt, 3)
+plot(model_bedrm_sqrt, 5)
+
+
+# Part 2 - second approach to non-linearity; try quadratic 
+# This model shows that adding a quadratic does not reflect the relationship between 
+# 2, 3 and 4 bedrooms: these prices are almost the same. It is only at 5 bdrms that the price 
+# spikes upward. 
+model_bedrm_quad<-lm(log(house$price) ~  house$bdrms + I(house$bdrms^2) + house$lotsize + house$sqrft)
+#Quadratic isn't a good model for modeling non-linearlity of bdrms. 
+
+
+#6)
+house$bdrm_sqft_interact<-house$bdrms * house$sqrft
+#place interaction term in full model
+model_interact_1<-lm(log(house$price) ~ house$lotsize + house$sqrft + 
+                       house$bdrms + house$bdrm_sqft_interact)
+summary(model_interact_1)
+# Sqft and bedrooms interaction not significant
+# *****************************************
+# Try another approach: create sqft category buckets based on quartiles
+house$sqft_catg<-ifelse(house$sqrft <= 1660, 1, ifelse(house$sqrft <= 1845, 2, ifelse(house$sqrft <= 2200, 3, 4)))
+house$bdrm_sqft_interact_catg<-house$bdrms * house$sqft_catg
+
+model_interact_3<-lm(log(house$price) ~ house$lotsize + house$sqrft + 
+                       house$bdrms + house$bdrm_sqft_interact_catg)
+summary(model_interact_3)
+# interaction term not significant when using categories for sqrft
+# ==> Conclude there is no significant interaction between sqft and bedrooms
+

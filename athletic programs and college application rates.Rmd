@@ -1,0 +1,146 @@
+---
+  title: "Homework_4"
+author: "Mary Lewis"
+date: "October 16, 2016"
+output: pdf_document
+---
+
+
+
+```{r warning=FALSE, message=FALSE}
+
+rm(list=ls())
+library(car)
+library(lmtest)
+library(sandwich)
+library(data.table)
+
+load("C:/athletics.RData")
+```
+Question 1)
+Conduct a quick examination and EDA of the dataset.
+Examine the variables of interest
+```{r}
+ath1 <- data.table(data)
+str(ath1)
+desc
+nrow(ath1)
+summary(ath1)
+hist(ath1$apps)
+```
+Log improves the apps distribution
+Many schools have been in a bowl, but very few have a btitle or been in the final four
+
+```{r }
+hist(log(ath1$apps))
+hist(ath1$bowl)
+hist(ath1$btitle)
+hist(ath1$finfour)
+```
+
+Question 2)
+Which schools had the greatest increase and the greatest decrease in number of log applications?
+
+Distribution of clapps looks almost normal, slight right skew, median is less than mean
+Arizona has largest increase in clapps
+Arkansas has largest decrease in clapps
+
+```{r}
+
+ath = merge(x = ath1[ath1$year == 1992, ], y = ath1[ath1$year == 1993, ], by = "school", 
+            all=TRUE, suffixes = c("_92", "_93"))
+
+ath$clapps<-ath$lapps_93 - ath$lapps_92
+median(ath$clapps)
+mean(ath$clapps)
+hist(ath$clapps)
+most<-ath$school[which.max(ath$clapps)]
+most
+min<-ath$school[which.min(ath$clapps)]
+min
+
+```
+
+
+Question 3)
+Similarly to above, create three variables, cbowl, cbtitle, and cfinfour, where each of these
+variables represents the changes in the three athletic success variables.
+```{r warning=FALSE}
+
+ath$cbowl<-ath$bowl_93- ath$bowl_92
+ath$ctitle<-ath$btitle_93 - ath$btitle_92
+ath$cfinfour<-ath$finfour_93 - ath$finfour_92
+```
+
+Question 4)
+We are interested in a population model,
+lapps(i) = B0 + B1 cbowl(i) + B2 cbtitle(i) + B3 cfinfour(i) + a(i) + u(it)
+
+The univ with the largest increase, arizona, has leverage at 0.5
+Remove this and re-examine model
+Result is that cBowl, which had been significant at 5% is no longer significant at 5% 
+(Now it's probability density is about 10%)
+==> Conclusion is to leave the row for Arizona in the dataset
+ 
+```{r}
+model1<-lm(ath$clapps ~ ath$cbowl + ath$ctitle + ath$cfinfour)
+summary(model1)
+plot(model1, 1)
+plot(model1, 2)
+plot(model1, 3)
+plot(model1, 5)
+
+ath2<-ath[-c(2), ]
+
+model1a<-lm(ath2$clapps ~ ath2$cbowl + ath2$ctitle + ath2$cfinfour)
+summary(model1a)
+plot(model1a, 1)
+plot(model1a, 2)
+plot(model1a, 3)
+plot(model1a, 5)
+```
+
+
+#4a) What additional assumption is needed for this population model to be causal? Write this in mathematical #notation and also explain it intuitively in English.
+
+#For the model to be causal, the change in the error term as x changes must be zero.
+Mathmatical expression: du/dx = 0
+This means that as variables change for each school, changes in the error 
+term should not be correlated with changes in those variables. In this case, 
+the variables in the equation represent changes in athletic performance from 1991-1992.
+
+4b) What additional assumption is needed for OLS to consistently estimate the first-difference model?
+Write this in mathematical notation and also explain it intuitively in English. Comment on whether
+this assumption is plausible in this setting.
+
+The result of difference in differences, after taking the difference of 2 models at t1 and t2:
+
+d/y(i) = B0 + B1 dx(i) + du(i) 
+
+In order for OLS to consistently estimate the first difference model, we 
+must assume that changes in the idiosyncratic error of an individual, i, over time, 
+are independent of changes in x.
+
+Mathmatical expression: du(i) / dx(i) = 0
+
+The first-difference model itself has already accounted for variables 
+that are consistent over time but are not included in the model (e.g. ability).
+These are respresented as a(i) and cancel out measuring from t1 to t2.
+
+However, changes in the error term for each individual between t1 and t2 
+must be independent of any treatment effect (change in x) between t1 and t2. 
+
+This is a plausible assumption for this model, assuming there was no sweeping policy 
+change in application policy during the 2 years in question across all schools. 
+For example, if a national policy made all applications free in 1993 (but not in 1992)
+applications might have increased unexpectedly at certain schools not others in 1993, 
+and this impact would occur in the error term at t2 but not t1. 
+
+
+5) Null hypothesis: b1=b2=b3=0. The Wald test shows the model is not significant, 
+so we can not reject the null hypothesis that indicator coefficients are all zero.
+```{r}
+
+waldtest(model1, vcov = vcovHC)
+
+```

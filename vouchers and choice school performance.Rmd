@@ -1,0 +1,136 @@
+---
+title: "Section3_HW5_LewisM"
+author: "Mary Lewis"
+date: "October 23, 2016"
+output: pdf_document
+---
+
+```{r}
+rm(list=ls())
+library(car)
+library(lmtest)
+library(sandwich)
+library(data.table)
+
+load("C:/voucher.RData")
+prelim <- data.table(data)
+str(prelim)
+desc
+nrow(prelim)
+summary(prelim)
+sum(prelim$choiceyrs>prelim$selectyrs)
+```
+Remove 2 rows where choice years are more than select years as this is not possible.
+```{r}
+voucher<-subset(prelim[prelim$choiceyrs<=prelim$selectyrs])
+nrow(voucher)
+```
+Selectyrs normally distributed as would expect from random assignment
+```{r}
+hist(voucher$selectyrs)
+```
+Choiceyrs right skew
+```{r}
+hist(voucher$choiceyrs)
+#summary(voucher$choiceyrs)
+#summary(voucher$selectyrs)
+```
+Question 1: Of the 990 students in the sample, how many were never awarded a voucher? 
+Answer : 467
+How many had a voucher available for four years? 
+Answer: 108
+How many students actually attended a choice school for four years?
+Answer: 56
+```{r}
+sum(voucher$select==0)
+sum(voucher$selectyrs==4)
+sum(voucher$choiceyrs==4)
+```
+
+Question 2: Run a simple regression of choiceyrs on selectyrs.
+Are these variables related in the direction you expected? How strong is the relationship?
+
+Directionally they are in line with what you would expect but only at .77. Ideally, with no attrition,
+the coef would be 1. The rate of attrition is interpreted to be about 23% (100% - 77%)
+The relatoinship is highly significant.
+Is selectyrs a sensible IV candidate for choiceyrs? As mentioned in the description, it's not a completely
+random assignment becuase a certain subset might be more likely to apply for a voucher.
+It's exogenous to a greater extent than choice years but probably not truly exogenous.
+```{r}
+model1<-lm(voucher$choiceyrs ~ voucher$selectyrs)
+summary(model1)
+```
+Question 3: Run a simple regression of mnce on choiceyrs. What do you find? Is this what you expected?
+What happens if you add the variables black, hispanic, and female?
+ 
+Answer: It is somewhat surprising that for each additional year at choice school, mnce score decreases by 1.8 points
+```{r}
+model2<-lm(voucher$mnce ~ voucher$choiceyrs)
+summary(model2)
+```
+Adding all 3 (last model below), choice years is no longer significant, whereas
+being black or hispanic is practically and statistically significant and accounts 
+for the negative relationship.
+Being female has a positive relationship to mnce but is not statistically significant. 
+```{r}
+model3<-lm(voucher$mnce ~  voucher$choiceyrs + voucher$black)
+summary(model3)
+model4<-lm(voucher$mnce ~ voucher$choiceyrs + voucher$hispanic)
+summary(model4)
+model5<-lm(voucher$mnce ~ voucher$choiceyrs + voucher$female)
+summary(model5)
+
+model_all<-lm(voucher$mnce ~  voucher$choiceyrs + voucher$black + voucher$hispanic + voucher$female)
+summary(model_all)
+```
+4) The equation omits important variables that are likely to impact
+the number of choiceyears, such as family income, parents level of education, etc.
+Thus the error term is not uncorrelated with choiceyears.
+
+5)
+Using select years as the IV, mnce still is negative, again not significant.
+for each increase in  select year, mnce drops, but to a lesser extent than choice years.
+Practically and statistically, the coefs on the other variables are essentially the same as they were
+using choice years, but the coef on IV (select years) is less than choice years. (causes less of a decline)
+
+This seems to confirm that choice years is endogenous.
+```{r}
+model_IV<-lm(voucher$mnce ~  voucher$selectyrs + voucher$black + voucher$hispanic + voucher$female)
+summary(model_IV)
+```
+6) Estimate equation #4 , include mnce90 variable. Test with OLS and IV. Compare the results for B1.
+
+When adding prior performance, mnce90, Choice years is not significant, coef is 0.4.
+Mnce90 is highlty precdictive of mnce at 0% significance (.62). Black is practically & significantly
+significant.
+```{r}
+model_all_90 <-lm(voucher$mnce ~  voucher$choiceyrs + voucher$mnce90 + voucher$black 
+                  + voucher$hispanic + voucher$female)
+summary(model_all_90)
+```
+Switching to IV, Select years, mnce is impacted 1.3 pts, per year and is significant at 5%.
+Over a four year period, this equates to 5 points. We would need to
+know more about mnce scale and scoring
+to know if 5 points is practically significant.
+Mnce90 and black have coefs in the same range as when not using the IV.
+```{r}
+model_all_90_IV <-lm(voucher$mnce ~  voucher$selectyrs + voucher$mnce90 + voucher$black 
+                     + voucher$hispanic + voucher$female)
+summary(model_all_90_IV)
+```
+7) Estimate choiceyrs and selectyrs using categorical variables.
+None of the coefs on the categorical vars are significant.
+Students with selectyrs = 3 are the only students with negative coef
+relation to mnce relative to those who received vouchers (other selectyrs) as wellas those that did not
+receive voucher (selectyrs=0).
+Findings suggest that not attending first year at a choice school has a negative impact,
+including that it might increase the attrition rate for that same group..
+```{r}
+model_cat_choice<-lm(voucher$mnce ~  choiceyrs1 + choiceyrs2 + choiceyrs3 + choiceyrs4 
+                     + black + hispanic + female, data=voucher)
+summary(model_cat_choice)
+
+model_cat_select<-lm(voucher$mnce ~   selectyrs1 + selectyrs2 + selectyrs3 + selectyrs4 
+                     + black + hispanic + female, data=voucher)
+summary(model_cat_select)
+```

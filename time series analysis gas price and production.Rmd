@@ -1,0 +1,341 @@
+---
+title: "Section3_Lab02_RivaS_OparaS_LewisM"
+author: "Stanley Opara, Mary Lewis, Lana Riva"
+date: "December 10, 2016"
+output: pdf_document
+---
+##Forecast Inflation-Adjusted Gas Price
+
+We are using the oil production and inflation-adjusted gas price data set from the Energy Information Administration to forecast inflation-adjusted gas prices.  We will explore the SARIMA-type model and a multi-variate model to determine which is more accurate.
+
+Load in libraries
+```{r include=FALSE, warning=FALSE}
+rm(list=ls())
+library(data.table)
+library(astsa)
+library(tseries)
+library(forecast)
+library(vars)
+```
+
+##EDA ON Data
+
+1. 410 observations
+2. 3 variables - Date, Oil Production, and Gas Price
+3. Min Date: 1978-01-01 and Max Date: 2012-02-01
+4. A total of 410 observations - 34 years and 2 months
+5. Average oil production within this time period was 210 million barrels and average inflated-adjusted price of oil was $2.39.
+6. Histogram of the gas price is right skewed. Taking the log of gas price spreads out the distribution, but is still not normal.
+```{r}
+load("C:/gasOil.RData")
+str(gasOil)
+min(gasOil$Date)
+#1978-01-01
+max(gasOil$Date)
+#2012-02-01
+
+
+oil.orig <- gasOil
+head(oil.orig, 10)
+tail(oil.orig, 10)
+
+summary(oil.orig)
+nrow(oil.orig)
+hist(oil.orig$Price, main = "Histogram of Gas Price", xlab = "Gas Price in $")
+hist(log(oil.orig$Price), main = "Histogram of Log of Gas Price", xlab = "Log Gas Price")
+```
+
+##EDA ON Gas Price Time Series 
+Removing two years of trailing data for forecasting and analyzing the time series of Gas Prices
+
+1. The time series plot of gas price has a downward and upward trend.
+2. Seasonal trends can be observed with an increase in price in the middle of the year (summer months) and a decrease at the and of the year.
+3. ACF shows a fairly persistent autocorrelation, further implying that the series is not stationary.
+4. PACF cuts off at lag 1 with no significant partial autocorrelation after the 2nd lag.
+
+```{r}
+oil.price.ts<-ts(oil.orig$Price, start = c(1978, 1), end=c(2010,2), frequency = 12)
+
+par(mfrow=c(2,2))
+plot(oil.price.ts, main = "Time Series of Gas Price", xlab = "Year", ylab = "Gas Price in $")
+hist(oil.price.ts, main = "Histogram of Gas Price", xlab = "Gas Price in $")
+acf(oil.price.ts, lag.max = 48, main = "ACF Of Gas Price TS")
+pacf(oil.price.ts, lag.max= 48, main = "PACF of Gas Price TS")
+
+oil.decomp<-decompose(oil.price.ts)
+plot(oil.decomp)
+```
+
+##EDA ON Gas Production Time Series
+Analyzing the time series of Oil Production with 2 years removed from original data
+
+1. The time series plot appears to be stationary between 1978 and 1987.  It sharply declines  after 1987.
+2. Seasonal trends can be observed with an increase in production in the beginning of the year and decreasing in the summer months with vallues towards the end of the year.
+3. ACF shows a very persistent autocorrelation, further suggesting that the series is not stationary.
+4. PACF cuts off at lag 4 with a couple significant lags post lag 4 and suggesting some partial autocorrelation.
+
+```{r}
+oil.prod.ts<-ts(oil.orig$Production, start = c(1978, 1), end=c(2010,2), frequency = 12)
+dev.off()
+par(mfrow=c(2,2))
+plot(oil.prod.ts, main = "Time Series of Oil Production", xlab = "Year", ylab = "Millions of Barrels")
+hist(oil.prod.ts, main = "Histogram of Oil Production", xlab = "Millions of Barrels")
+acf(oil.prod.ts, lag.max = 48, main = "ACF Of Oil Production TS")
+pacf(oil.prod.ts, lag.max= 96, main = "PACF of Oil Production TS")
+
+prod.decomp<-decompose(oil.prod.ts)
+plot(prod.decomp)
+```
+
+## Conduct ADF Test for stationarity of both time series
+The two time series (oil price and oil production) are not stationary
+```{r}
+#Dickey fuller test for stationarity
+adf.test(oil.price.ts)
+adf.test(oil.prod.ts)
+# Both p-values not significant, therefore the null hypothesis cannot be rejected which is that both series have a unit
+```
+
+# EDA On Differenced Series
+GasPrice
+(1) Differenced Time Series looks stationary with a slight increase in volatility
+(2) Acf of differenced series cuts of at lag 3
+(3) PACF of differenced series has some fairly significant values up to lag5
+
+GasProduction
+(1) Differenced Time Series looks stationary with a slight increase in volatility
+(2) Acf of differenced series cuts of at lag 3
+(3) PACF of differenced series has some fairly significant values up to lag5
+```{r}
+
+###EDA on Trend Differenced gas prices
+par(mfrow=c(2,2))
+plot(diff(oil.price.ts), main = "Differenced Time Series of Gas Price", xlab = "Year", ylab = "Gas Price in $")
+acf(diff(oil.price.ts), lag.max = 48, main = "ACF Of Differenced Time Series ")
+pacf(diff(oil.price.ts), lag.max= 96, main = "PACF of Differenced Time Series")
+dev.off()
+
+###EDA on Differenced production
+par(mfrow=c(2,2))
+plot(diff(oil.prod.ts), main = "Differenced Time Series of Prod", xlab = "Year", ylab = "Millions of Barrels")
+acf(diff(oil.prod.ts), lag.max = 48, main = "ACF Of Oil Production TS")
+pacf(diff(oil.prod.ts), lag.max= 96, main = "PACF of Oil Production TS")
+dev.off()
+```
+
+## ARIMA modeling For Gas Prices Trend
+
+Based on EDA, we tried an ARIMA(0,1,2) and subsequently tried ARIMA(1,1,3). It turned out that ARIMA(1,1,3) had a lower AIC
+
+The residuals of this model still showed a seasonal cycle via the ACF and significant points throughout the time series via PACF. 
+```{r}
+#Creating ARIMA(0,1,2) model 
+p.arima1<-arima(oil.price.ts, order = c(0, 1, 2))
+p.arima1$aic
+
+# Adding an AR term and increasing MA to order 3 lowers the AIC very from -636 to -644
+p.arima2<-arima(oil.price.ts, order = c(1, 1, 3))
+p.arima2$aic
+
+#look at residuals of the 2nd model with the AR component
+p.resid1<-p.arima2$residuals
+dev.off()
+par(mfrow=c(3,1))
+plot(p.resid1, type="l", main="Residuals: t-plot")
+acf(p.resid1, lag.max=60, main="ACF of the Residual Series")
+pacf(p.resid1, lag.max = 48, main="PACF of the Residual Series")
+#ACF of residuals shows seasonal cycle with significant points every 12 months
+#PACF of residuals shows significant points throughout
+```
+
+## SARIMA modeling For Gas Prices WIth Seasonality
+
+1. The ACF plot of the seasonality component gradually tails off and the PACF sharply cuts off at 2. We would model the  the seasonal component with (2,0,1)
+2. Again, adding an AR term to the seasonal component decreased the AIC slighlty, therefore we decided to go with an AR order of 1,1,2 and a seasonal order of 3,0,1.
+2. After conducting model diagnostics by looking at residual plots, we can conclude that the residuals have similar characteristics as a white noise process.
+3. Furtheremore, conducting the Ljung-box test confirmed that the residuals are independent.
+```{r}
+dev.off()
+oil.seasonal<-decompose(oil.price.ts)$seasonal
+plot(oil.seasonal)
+acf(oil.seasonal, lag.max = 72)
+pacf(oil.seasonal, lag.max = 72)
+
+price.sarima1<-arima(oil.price.ts, order = c(1, 1, 2), seas= list(order=c(2,0,1),12))
+price.sarima1$aic
+# AIC of SARMIMA (-655) is much lower than AIC of ARIMA (-644)
+
+# Adding an AR term to the seasonal component makes the AIC (-661) slightly lower 
+price.sarima2<-arima(oil.price.ts, order = c(1, 1, 2), seas= list(order=c(3,0,1),12))
+price.sarima2$aic
+
+#View residuals again
+resid2<-price.sarima2$residuals
+head(resid2)
+dev.off()
+par(mfrow=c(3,1))
+plot(resid2, type="l", main="Residuals: t-plot")
+acf(resid2, lag.max=48, main="ACF of the Residual Series")
+pacf(resid2, lag.max = 48, main="PACF of the Residual Series")
+
+hist(resid2, breaks="FD", col="blue", main="Residual Series")
+qqnorm(resid2, main="Normal Q-Q Plot of the Residuals")
+qqline(resid2, col="blue")
+Box.test(resid2, type="Ljung-Box")
+# Ljung-box test, p-value = 0.9
+# Cannot reject the null hypothesis. i.e. residual time series is independent
+```
+
+# Build Forecast using the SARIMA model and plot
+```{r}
+price.fcast.univ <- forecast.Arima(price.sarima2, h=24, level=c(95))
+price.fcast.univ.mean <- price.fcast.univ$mean
+
+#use full time series to overlay
+price.full.ts<-ts(oil.orig$Price, start = c(1978, 1), frequency = 12)
+dev.off()
+plot(price.fcast.univ, main="Oil Price Forecast and Original Series",
+     xlab="Time Period", ylab="Original and Forecasted Values",
+     xlim=c(), col="blue", lty=2)
+lines(price.full.ts,col="green", lty = 1)  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topleft", legend=leg.txt, lty=c(2,1), 
+       col=c("green","blue"), bty='n', cex=0.75)
+```
+
+#Use RMSE to evaluate mean forecast accuracy
+```{r}
+price.actual<-oil.orig$Price[387:410]
+delta.univ <- price.actual - price.fcast.univ$mean
+m.rms <- sqrt(mean(delta.univ^2))
+m.rms
+```
+RMSE forcast result is $0.50 given that the actual mean price over 24 months is  $3.43
+
+##Interpretation
+(1) From the forcast and actual plot, we can observe that the actual values lie within the forcast's confidence interval
+(2) Given that the residuals resemble that of a white noise process, we can conclude that the SARIMA model is appropriate to model this series
+(3) The root meean square error when we compared the mean of the forcasted values to the actual values is $0.50
+
+#Multi-Variate Analysis
+Neither series is stationary; VAR modelling requires stationary series.
+Take first difference of each series; conduct ADF test to verify stationarity of first differnce.
+```{r}
+oil.price.diff<-diff(oil.price.ts)
+oil.prod.diff<-diff(oil.prod.ts)
+
+
+adf.test(oil.price.diff)
+adf.test(oil.prod.diff)
+
+```
+The Adf test for both series is  significant hence we are able to reject the null that series is non-stationary and
+assume differenced series is stationary
+
+#Creating a multi-variate model via VAR
+
+```{r}
+library(vars)
+VARselect(cbind(oil.price.diff, oil.prod.diff))
+op.var <- VAR(cbind(oil.price.diff, oil.prod.diff), p=5) #season = 12)
+summary(op.var)
+coef(op.var)
+AIC(op.var)
+```
+
+Using VARselect we observe that the most optimal p value is p=5
+
+# RESULTS
+(1) Model results show that price is significantly correlated with its own lags, and also significantly correlated with production lags (1st and 2nd lags)
+
+(2) However the reverse is not true: production is only correlated with its own lags, it is not correlated at any level of significance with price lags
+
+#Model Diagnostics Of VAR Model
+```{r}
+resid.var<-resid(op.var)
+hist(resid.var)
+#normally distributed
+dev.off()
+acf(resid.var, lag.max = 48)
+pacf(resid.var, lag.max = 48)
+dev.off()
+qqnorm(resid.var, main="Normal Q-Q Plot of the Residuals")
+qqline(resid.var, col="blue")
+#test resid on price
+Box.test(resid.var[,1], type="Ljung-Box") 
+#Not significant therfore cannot reject null that series is independent
+
+#test resid on produdction
+Box.test(resid.var[,2], type="Ljung-Box") 
+#Not significant therfore cannot reject null that series is independent
+```
+Residual analysis shows:
+(1)Histogram is somewhat normally distributed
+(2) THe ACF for the price differential shows no significant auto-correlation but that of production
+shows some strong autocorrelation
+(3)From the PACF graph, there is no significant partial auto-correlation in both series
+(4) We can conclude that the residuals of gas price model looks like that of a white noise series.
+
+##Forcasting With VAR Model
+We only forecast ahead for 23 diffs, because when comparing with actual series, we will take the 
+first diff of the actual series. First diff will decrease the lenght of the vector by 1.
+```{r}
+oil.var.predict <- predict(op.var, n.ahead = 23)
+
+#Concatenate original diff series (which contains values 1:386) plus the forecast series to overlay
+price.pred<-ts(c(oil.price.diff, oil.var.predict$fcst$oil.price.diff[,1]), start = c(1978, 1), frequency = 12)
+
+#This is the full length differenced series
+price.act.diff<-diff(ts(oil.orig$Price, start = c(1978,1), frequency = 12))
+
+plot(price.pred, main="Oil Price Original overlay forecast",
+     xlab="Time Period", ylab="Original and Forecasted Values",
+     xlim=c(), col="blue", lty=2)
+lines(price.act.diff,col="green", lty = 1)  
+leg.txt <- c("Original Series", "Estimated Series")
+legend("topleft", legend=leg.txt, lty=c(2,1), 
+       col=c("green","blue"), bty='n', cex=0.75)
+
+##Plot showing confidence intervals
+plot(oil.var.predict)
+
+```
+Conclusion: From the plot, we observe that the forcasted data slightly increases and later becomes a flat line which suggests that the VAR model is useful only for short term predictions and not long term. We also observed that the predicted VAR model does not reflect seasonal variation.
+
+# Examine accuracy of VAR prediction
+We will need to take original series first diff, and extract the last 24 values
+The lab question refers to price forecast, so we will only examine price
+```{r}
+# PRICE: take full series, first difference and extract last 24 values
+price.act.diff.last23<-price.act.diff[387:409]
+#Because we have differenced series, the last value is NA, use only last 23 values
+
+#PRICE delta
+price.fcst<-oil.var.predict$fcst$oil.price.diff[,1]
+delta.price <- price.act.diff.last23 - price.fcst
+
+# Checking accuracy of forecast with RMSE
+m.rms <- sqrt(mean(delta.price^2))
+m.rms
+
+actual.diff.rms <- sqrt(mean(price.act.diff.last23^2))
+actual.diff.rms
+```
+The RMS of the delta is 0.13, which is ~100% of the first diffed values
+The RMS of the delta essentially reflects the RMS of the first diffed values,
+because the prediction was flat along the mean
+
+##Model Comparison
+
+(1) Using AIC Metric
+The AIC for the SARIMA model was -661 and the AIC for the VAR model is 1914, indicating that SARIMA is more parsimonious. 
+The SARIMA also has better in-sample fit.
+
+(2) Using Forcast Accuracy
+From both plots of forcast accuracy we can observe that the SARIMA model did a better job at prediction relative to the VAR model.In the SARIMA model, all the actual values were within the confidence interval of corresponding forcasted values. In the VAR model, some actual values were outside the confidence intervals of the corresponding forecasted values.
+
+(3) Ability of the model to reflect seasonal pattern
+Oil prices show strong seasonal trend that peaks in summer months and declines in winter months. The VAR model did not replicate this seasonal pattern but the SARIMA,with seasonal component was able to replicate this trend.
+
+(4) Interpretation
+The forcasted SARIMA values were easier to interpret relative to that of the VAR model. Because we took differences in the VAR model, the results would require additional manipulation to be useful. 
