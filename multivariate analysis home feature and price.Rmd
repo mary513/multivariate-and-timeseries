@@ -1,3 +1,13 @@
+---
+title: "Homework3"
+author: "Mary Lewis"
+date: "October 9, 2016"
+output: pdf_document
+
+---
+
+```{r cars}
+
 rm(list=ls())
 library(car)
 library(lmtest)
@@ -44,16 +54,12 @@ nrow(house)
 # Price
 # Price is right/positive skewed and log(price) corrects this. Price is not negative and
 # natrually lends itself to log transformation
-hist(house$price)
-hist(log(house$price))
 
-### ???????????????????????????????????????????????????????
-# Sqft
-# sqft is right/positive skewed but log doesn't correct this
-# Sqft might have more significance if recoded as an ordinal variable in buckets
-# especially as an interaction term. Will explore this later as needed.
-hist(house$sqrft, breaks=100)
-hist(log(house$sqrft), breaks=100)
+#hist(house$price)
+#hist(log(house$price))
+
+#hist(house$sqrft, breaks=100)
+#hist(log(house$sqrft), breaks=100)
 
 # Lotsize
 # One extreme outlier over 80,000 sqft. 
@@ -61,12 +67,14 @@ hist(log(house$sqrft), breaks=100)
 # Lotsize might have more significance if recoded as an ordinal variable in buckets. 
 # Will explore this as needed
 # Somewhat right skewed but probably no need to use log
-hist(house$lotsize, breaks=100)
+
+#hist(house$lotsize, breaks=100)
 
 # Bdrms
 # There are 2 outliers for bdrms, one house with 6 and one house with 7 bdrms. 
 # Later diagnostics will ascertain if these are impacting regression results.
-hist(house$bdrms, breaks=100)
+
+#hist(house$bdrms, breaks=100)
 
 # Colonial is a factor/binary variable (can be understood similar to male/female)
 
@@ -85,7 +93,7 @@ model_vif<-lm(house$price ~ house$sqrft + house$bdrms + house$lotsize)
 vif(model_vif)
 sqrt(vif(model_vif)) > 2
 
-#3) Use linear model: pricei=??0+??1sqrfti+??2bdrmsi+??3lotsizei+??i
+#3) Use linear model: pricei=0+?1sqrfti+?2bdrmsi+?3lotsizei+?i
 # Interpret the coefficient estimates, including ??^0
 
 # First test the model by diagnostics and make adjustments. Then interpret coefs.
@@ -112,7 +120,7 @@ plot(model1, 5)
 
 # No points outside of cooks distance and all variables are significant
 
-# The intercept ??0 reflects the log of house price when all other coefficients are zero.
+# The intercept reflects the log of house price when all other coefficients are zero.
 # It has no real world interpretation as lotsize/price can't be zero
 # Although sqft could be zero, if the property was land only. 
 
@@ -276,3 +284,8 @@ summary(model_interact_3)
 # interaction term not significant when using categories for sqrft
 # ==> Conclude there is no significant interaction between sqft and bedrooms
 
+
+
+
+
+```
